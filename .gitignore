@@ -1,0 +1,35 @@
+# Maven and Java output
+target/
+*.class
+*.jar
+*.war
+*.log
+logs/
+hs_err_pid*
+replay_pid*
+*.hprof
+*.jfr
+
+# Local editor state and history
+.history/
+.localhistory/
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+out/
+*.swp
+*.swo
+*~
+*.tmp
+*.bak
+
+# Local configuration and OS files
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+Desktop.ini
