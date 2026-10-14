@@ -19,6 +19,59 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(30)
 class SwarmConsoleTest {
     @Test
+    void virtualShutdownHookClosesServersDuringJvmExit() throws Exception {
+        var javaExecutable = java.nio.file.Path.of(System.getProperty("java.home"), "bin", "java.exe");
+        if (!java.nio.file.Files.exists(javaExecutable)) {
+            javaExecutable = java.nio.file.Path.of(System.getProperty("java.home"), "bin", "java");
+        }
+        var process = new ProcessBuilder(javaExecutable.toString(), "-cp",
+                System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
+                ShutdownProbe.class.getName()).redirectErrorStream(true).start();
+        try (var reader = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            var output = reader.submit(() -> new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            try {
+                assertTrue(process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS), "JVM shutdown did not complete");
+                String actual = output.get(2, java.util.concurrent.TimeUnit.SECONDS);
+                assertEquals(0, process.exitValue(), actual);
+                assertTrue(actual.contains("Shutdown hook probe | virtual=true | state=NEW"), actual);
+                assertTrue(actual.contains("ThreadPooledServer Closed."), "The shutdown hook must finish listener cleanup:\n" + actual);
+                var ports = Pattern.compile("Probe ports \\| main=(\\d+) \\| admin=(\\d+)").matcher(actual);
+                assertTrue(ports.find(), actual);
+                int main = Integer.parseInt(ports.group(1));
+                int admin = Integer.parseInt(ports.group(2));
+                try (var a = new java.net.ServerSocket(main); var b = new java.net.ServerSocket(admin)) {
+                    assertEquals(main, a.getLocalPort());
+                    assertEquals(admin, b.getLocalPort());
+                }
+                System.out.println("Virtual shutdown hook test PASSED | JVM exited after server cleanup");
+            } finally {
+                if (process.isAlive()) {
+                    process.destroyForcibly();
+                    assertTrue(process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS));
+                }
+            }
+        }
+    }
+
+    /** A separate JVM is required to exercise the actual Runtime shutdown sequence. */
+    public static final class ShutdownProbe {
+        public static void main(String[] args) throws Exception {
+            var manager = new SwarmManager();
+            var endpoint = manager.start("exit", 1).getFirst();
+            var hook = SwarmMain.shutdownHook(manager);
+            Runtime.getRuntime().addShutdownHook(hook);
+            System.out.println("Shutdown hook probe | virtual=" + hook.isVirtual() + " | state=" + hook.getState());
+            System.out.println("Probe ports | main=" + endpoint.port() + " | admin=" + endpoint.adminPort());
+            // Ensure both listeners have started before exit, so abrupt VM termination cannot mimic cleanup.
+            if (!manager.status("exit").getFirst().alive()) { throw new IllegalStateException("Server did not start"); }
+            if (!manager.send("exit", "Ready for shutdown").getFirst().status().equals("OK")) {
+                throw new IllegalStateException("Main listener did not process traffic");
+            }
+            System.exit(0);
+        }
+    }
+
+    @Test
     void acceptsRepeatedRuntimePluginFoldersAndRejectsMissingValues() {
         assertTrue(SwarmMain.parsePluginDirectories().isEmpty());
         assertEquals(java.util.List.of(java.nio.file.Path.of("first plugins"), java.nio.file.Path.of("second")),

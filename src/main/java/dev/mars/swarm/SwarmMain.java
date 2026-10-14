@@ -30,9 +30,7 @@ public final class SwarmMain {
             return;
         }
         var manager = new SwarmManager(parsePluginDirectories(args));
-        var shutdown = new Thread(() -> {
-            try { manager.close(); } catch (IOException e) { System.err.println("Swarm shutdown failed: " + e.getMessage()); }
-        }, "swarm-shutdown");
+        var shutdown = shutdownHook(manager);
         Runtime.getRuntime().addShutdownHook(shutdown);
         try (manager;
              var input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
@@ -41,6 +39,12 @@ public final class SwarmMain {
             try { Runtime.getRuntime().removeShutdownHook(shutdown); }
             catch (IllegalStateException ignored) { /* JVM shutdown is already in progress. */ }
         }
+    }
+
+    static Thread shutdownHook(SwarmManager manager) {
+        return Thread.ofVirtual().name("swarm-shutdown").unstarted(() -> {
+            try { manager.close(); } catch (IOException e) { System.err.println("Swarm shutdown failed: " + e.getMessage()); }
+        });
     }
 
     static java.util.List<Path> parsePluginDirectories(String... args) {

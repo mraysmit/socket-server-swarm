@@ -45,6 +45,8 @@ quit
 Each swarm starts its servers concurrently. IDs follow the pattern
 `alpha-Server-001`, `alpha-Server-002`, and so on. Each server requests main and
 admin port `0`; the OS assigns distinct bound TCP ports, which the harness prints.
+Server listeners, plugin startup, swarm lifecycle tasks, traffic clients, and the
+JVM shutdown hook use virtual threads.
 The underlying server also runs its startup plugins, including the UDP address
 announcement on port 9002. Server logs are visible in the same terminal.
 
