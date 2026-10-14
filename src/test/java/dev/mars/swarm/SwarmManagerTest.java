@@ -21,6 +21,58 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(45)
 class SwarmManagerTest {
     @Test
+    void countsMixedHealthyAndUnreachableTargetsWithoutStoppingHealthyServers() throws Exception {
+        var opened = new ConcurrentLinkedQueue<ServerInstance>();
+        try (var manager = new SwarmManager(List.of(), options -> {
+            var server = ServerInstance.start(options); opened.add(server); return server;
+        })) {
+            var endpoints = manager.start("mixed", 3);
+            opened.stream().filter(server -> server.getServerId().equals("mixed-Server-002")).findFirst().orElseThrow().close();
+            var progress = new ArrayList<Integer>();
+            var result = manager.test("mixed", 12, 4, progress::add);
+            assertEquals(8, result.passed());
+            assertEquals(4, result.failed());
+            assertEquals(4, result.failures().size());
+            assertFalse(result.successful());
+            assertEquals(List.of(12), progress);
+            assertEquals(2, manager.status("mixed").stream().filter(ServerStatus::alive).count());
+            manager.stop("mixed");
+            assertReleased(endpoints);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 99, 101})
+    void handlesSmallAndNonRoundRequestCountsWithFinalProgress(int requests) throws Exception {
+        try (var manager = new SwarmManager()) {
+            manager.start("progress", 2);
+            var progress = new ArrayList<Integer>();
+            var result = manager.test("progress", requests, 100, progress::add);
+            assertTrue(result.successful(), result.toString());
+            assertEquals(requests <= 100 ? List.of(requests) : List.of(100, requests), progress);
+            assertEquals(requests, result.passed());
+        }
+    }
+
+    @Test
+    void forwardsAllRuntimeFoldersToEveryServer(@org.junit.jupiter.api.io.TempDir Path temporary) throws Exception {
+        var first = java.nio.file.Files.createDirectory(temporary.resolve("first plugins"));
+        var second = java.nio.file.Files.createDirectory(temporary.resolve("second plugins"));
+        var supplied = new ArrayList<>(List.of(first, second));
+        var observed = new ConcurrentLinkedQueue<List<Path>>();
+        try (var manager = new SwarmManager(supplied, options -> {
+            observed.add(options.pluginDirectories());
+            return ServerInstance.start(options);
+        })) {
+            supplied.clear();
+            manager.start("folders", 2);
+            assertEquals(2, observed.size());
+            assertTrue(observed.stream().allMatch(paths -> paths.equals(List.of(first, second))));
+            assertTrue(manager.status("folders").stream().allMatch(ServerStatus::alive));
+        }
+    }
+
+    @Test
     void managesIndependentSwarmsAndCorrelatesEveryReply() throws Exception {
         List<ServerEndpoint> all = new ArrayList<>();
         try (var manager = new SwarmManager()) {
@@ -37,12 +89,12 @@ class SwarmManagerTest {
             assertEquals(2, manager.list().size());
             assertThrows(UnsupportedOperationException.class, () -> manager.list().clear());
             assertTrue(manager.status("alpha").stream().allMatch(ServerStatus::alive));
-            var replies = manager.send("alpha", "{\"instruction\":\"math.add\",\"parameters\":{\"a\":10,\"b\":20}}");
+            var replies = manager.send("alpha", "{\"instruction\":\"echo\",\"parameters\":{\"text\":\"Hello alpha\"}}");
             assertEquals(3, replies.size());
             var messages = new HashSet<java.util.UUID>();
             for (int i = 0; i < replies.size(); i++) {
                 assertEquals(alpha.get(i).serverId(), replies.get(i).serverId());
-                assertEquals("30", replies.get(i).result().toString());
+                assertEquals("Received: Hello alpha", replies.get(i).result());
                 assertTrue(messages.add(replies.get(i).messageId()));
             }
             assertEquals("Received: 你好", manager.send("beta", "你好").getFirst().result());
@@ -75,7 +127,7 @@ class SwarmManagerTest {
     void failedStartupRollsBackEveryNewInstanceAndPreservesOtherSwarms() throws Exception {
         var opened = new ConcurrentLinkedQueue<ServerInstance>();
         var attempts = new AtomicInteger();
-        try (var manager = new SwarmManager(null, options -> {
+        try (var manager = new SwarmManager(List.of(), options -> {
             if (options.serverId().startsWith("broken") && attempts.incrementAndGet() == 2) {
                 throw new IOException("Deliberate startup failure");
             }
@@ -96,7 +148,7 @@ class SwarmManagerTest {
     @Test
     void reportsUnreachableServersAndLoadFailures() throws Exception {
         var opened = new ArrayList<ServerInstance>();
-        try (var manager = new SwarmManager(null, options -> {
+        try (var manager = new SwarmManager(List.of(), options -> {
             var server = ServerInstance.start(options); opened.add(server); return server;
         })) {
             manager.start("offline", 1);

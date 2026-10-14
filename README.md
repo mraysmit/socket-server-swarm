@@ -32,8 +32,8 @@ start alpha 3
 start beta 2
 list
 status
-send alpha {"instruction":"math.add","parameters":{"a":10,"b":20}}
-send beta {"instruction":"text.concat","parameters":{"a":"Hello ","b":"swarm"}}
+send alpha {"instruction":"echo","parameters":{"text":"Hello alpha"}}
+send beta {"instruction":"echo","parameters":{"text":"Hello beta"}}
 send alpha Hello servers
 test alpha 1000 100
 stop alpha
@@ -53,7 +53,7 @@ different message UUID for each request and uses each server's expected ID to
 validate replies. It prints each verified reply, for example:
 
 ```text
-Swarm reply | messageId=<uuid> | serverId=alpha-Server-001 | connectionId=<id> | status=OK | result=30
+Swarm reply | messageId=<uuid> | serverId=alpha-Server-001 | connectionId=<id> | status=OK | result="Received: Hello alpha"
 ```
 
 ## Commands
@@ -76,10 +76,11 @@ Duplicate names are rejected. After stopping a swarm, you can reuse its name.
 If any server fails during swarm startup, all servers opened by that attempt are
 closed; previously running swarms remain available.
 
-The load test sends `math.add` requests round-robin across the selected swarm,
+The load test sends `echo` requests round-robin across the selected swarm,
 using virtual-thread clients and a limit on requests in flight. Each request uses
-a unique message UUID, validates the expected server ID, and checks the numeric
-result. Request counts range from 1 to 100,000; concurrency ranges from 1 to 1,000.
+a unique message UUID, validates the expected server ID, and checks the expected
+text result. It uses the production echo protocol and needs no test plugins.
+Request counts range from 1 to 100,000; concurrency ranges from 1 to 1,000.
 Progress appears every 100 completions, followed by a summary:
 
 ```text
@@ -93,17 +94,30 @@ It does not supply a batch-mode exit code or performance benchmark guarantees.
 
 ## External Plugins
 
-To make an external plugin available to all newly created servers, start the
-harness with a plugin directory:
+To make external plugins available to all newly created servers, supply runtime
+folders with `--plugins-dir`. Repeat this option for each folder:
 
 ```powershell
-mvn compile exec:java "-Dexec.args=--plugins-dir ../socket-server-threadpool/examples/multiply-plugin/target"
+mvn compile exec:java "-Dexec.args=--plugins-dir ../socket-server-threadpool/plugins/multiply-plugin/target"
 ```
+
+For multiple folders (replace these with existing directories):
+
+```powershell
+mvn compile exec:java "-Dexec.args=--plugins-dir C:/server-plugins/math --plugins-dir C:/server-plugins/text"
+```
+
+The harness passes the entire list to every instance it starts. Each server loads
+immediate `.jar` files from those folders at startup using one shared class loader,
+so plugin dependencies can be stored in another supplied folder. No per-plugin
+classpath changes or host rebuild are needed. Duplicate directory paths are
+deduplicated; directories are not scanned recursively. Omitting the options uses
+built-in and application-classpath providers. Restart instances to reload JARs.
 
 Build the sibling example first if necessary:
 
 ```powershell
-mvn -f ../socket-server-threadpool/examples/multiply-plugin/pom.xml clean verify
+mvn -f ../socket-server-threadpool/plugins/multiply-plugin/pom.xml clean verify
 ```
 
 Then enter:
@@ -114,7 +128,7 @@ send plugins {"instruction":"math.multiply","parameters":{"a":6,"b":7}}
 quit
 ```
 
-Each reply includes `result=42`. A supplied directory must exist; server startup
+Each reply includes `result=42`. Every supplied directory must exist; server startup
 validates providers and rejects corrupt JARs or duplicate instructions.
 
 ## Tests and Cleanup
@@ -131,6 +145,11 @@ Tests start their own servers on automatic ports and close them afterward. They
 cover multiple swarms, IDs and ports, command results, load verification, startup
 rollback, invalid input, and console handling. Reports are in
 `target/surefire-reports/`.
+
+Regression tests also verify that mixed healthy/unreachable targets produce
+correct success/failure counts, and that small or non-round request counts always
+emit final progress. Swarm tests use the production echo protocol and do not
+prescribe which other plugins a server may load.
 
 `quit`, end-of-input, and the JVM shutdown hook close managed swarms and wait for
 accepted server work to finish. All instances share one JVM, so this version tests

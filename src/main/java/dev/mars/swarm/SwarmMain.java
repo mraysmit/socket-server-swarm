@@ -16,7 +16,7 @@ public final class SwarmMain {
               list                             List all swarms and endpoints
               status [name]                    Check admin status of one or all swarms
               send <name> <text or JSON>        Send a command to every server in a swarm
-              test <name> [requests] [clients]  Verify math.add replies (defaults: 1000 requests, 100 clients)
+              test <name> [requests] [clients]  Verify echo replies (defaults: 1000 requests, 100 clients)
               stop <name>                      Stop one swarm
               stop-all                         Stop every swarm
               help                             Show these commands
@@ -25,18 +25,11 @@ public final class SwarmMain {
 
     public static void main(String[] args) throws IOException {
         if (args.length == 1 && args[0].equals("--help")) {
-            System.out.println("Usage: SwarmMain [--plugins-dir <directory>]");
+            System.out.println("Usage: SwarmMain [--plugins-dir <directory>]...");
             System.out.print(HELP);
             return;
         }
-        Path plugins = null;
-        if (args.length != 0) {
-            if (args.length != 2 || !args[0].equals("--plugins-dir") || args[1].isBlank()) {
-                throw new IllegalArgumentException("Usage: SwarmMain [--plugins-dir <directory>]");
-            }
-            plugins = Path.of(args[1]);
-        }
-        var manager = new SwarmManager(plugins);
+        var manager = new SwarmManager(parsePluginDirectories(args));
         var shutdown = new Thread(() -> {
             try { manager.close(); } catch (IOException e) { System.err.println("Swarm shutdown failed: " + e.getMessage()); }
         }, "swarm-shutdown");
@@ -48,6 +41,18 @@ public final class SwarmMain {
             try { Runtime.getRuntime().removeShutdownHook(shutdown); }
             catch (IllegalStateException ignored) { /* JVM shutdown is already in progress. */ }
         }
+    }
+
+    static java.util.List<Path> parsePluginDirectories(String... args) {
+        var folders = new java.util.ArrayList<Path>();
+        for (int i = 0; i < args.length; i++) {
+            if (!args[i].equals("--plugins-dir") || i + 1 == args.length
+                    || args[i + 1].startsWith("--") || args[i + 1].isBlank()) {
+                throw new IllegalArgumentException("Usage: SwarmMain [--plugins-dir <directory>]...");
+            }
+            folders.add(Path.of(args[++i]));
+        }
+        return java.util.List.copyOf(folders);
     }
 
     static void runConsole(SwarmManager manager, BufferedReader input, PrintWriter output) throws IOException {

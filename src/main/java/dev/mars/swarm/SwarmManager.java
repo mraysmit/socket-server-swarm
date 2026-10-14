@@ -32,14 +32,15 @@ import java.util.function.IntConsumer;
 public final class SwarmManager implements AutoCloseable {
     public static final int MAX_SERVERS_PER_SWARM = 100;
     private final Map<String, List<ServerInstance>> swarms = new LinkedHashMap<>();
-    private final Path pluginsDir;
+    private final List<Path> pluginDirectories;
     private final ServerFactory factory;
     private boolean closed;
 
-    public SwarmManager() { this(null); }
-    public SwarmManager(Path pluginsDir) { this(pluginsDir, ServerInstance::start); }
-    SwarmManager(Path pluginsDir, ServerFactory factory) {
-        this.pluginsDir = pluginsDir;
+    public SwarmManager() { this(List.of()); }
+    public SwarmManager(Path pluginsDir) { this(pluginsDir == null ? List.of() : List.of(pluginsDir)); }
+    public SwarmManager(List<Path> pluginDirectories) { this(pluginDirectories, ServerInstance::start); }
+    SwarmManager(List<Path> pluginDirectories, ServerFactory factory) {
+        this.pluginDirectories = List.copyOf(pluginDirectories);
         this.factory = factory;
     }
 
@@ -61,7 +62,7 @@ public final class SwarmManager implements AutoCloseable {
                 for (int i = 1; i <= count; i++) {
                     String id = name + "-Server-" + String.format(java.util.Locale.ROOT, "%03d", i);
                     futures.add(starters.submit(() -> {
-                        var server = factory.start(new ServerOptions(id, 0, 0, pluginsDir));
+                        var server = factory.start(new ServerOptions(id, 0, 0, pluginDirectories));
                         opened.add(server);
                         return server;
                     }));
@@ -140,8 +141,9 @@ public final class SwarmManager implements AutoCloseable {
                         acquired = true;
                         var target = targets.get(index % targets.size());
                         UUID id = UUID.randomUUID();
-                        var reply = client(target).execute(id, "math.add", Map.of("a", index, "b", 1));
-                        if (!Integer.toString(index + 1).equals(reply.result().toString())) {
+                        String message = "swarm request " + index;
+                        var reply = client(target).execute(id, "echo", Map.of("text", message));
+                        if (!("Received: " + message).equals(reply.result())) {
                             throw new IOException("Unexpected result from " + target.serverId() + ": " + reply.result());
                         }
                         verified.incrementAndGet();

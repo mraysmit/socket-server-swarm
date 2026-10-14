@@ -7,11 +7,29 @@ import java.io.BufferedReader;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @Timeout(30)
 class SwarmConsoleTest {
+    @Test
+    void acceptsRepeatedRuntimePluginFoldersAndRejectsMissingValues() {
+        assertTrue(SwarmMain.parsePluginDirectories().isEmpty());
+        assertEquals(java.util.List.of(java.nio.file.Path.of("first plugins"), java.nio.file.Path.of("second")),
+                SwarmMain.parsePluginDirectories("--plugins-dir", "first plugins", "--plugins-dir", "second"));
+        assertThrows(UnsupportedOperationException.class, () -> SwarmMain.parsePluginDirectories().clear());
+        for (String[] args : java.util.List.of(new String[]{"--plugins-dir"}, new String[]{"--plugins-dir", " "},
+                new String[]{"--unknown", "folder"}, new String[]{"--plugins-dir", "--plugins-dir", "second"})) {
+            assertThrows(IllegalArgumentException.class, () -> SwarmMain.parsePluginDirectories(args));
+        }
+    }
+
     @Test
     void consoleManagesTwoSwarmsSendsCommandsAndShowsTestProgress() throws Exception {
         String output = run("""
@@ -19,7 +37,7 @@ class SwarmConsoleTest {
                 start beta 1
                 list
                 status alpha
-                send alpha {"instruction":"math.add","parameters":{"a":10,"b":20}}
+                send alpha {"instruction":"echo","parameters":{"text":"Hello alpha"}}
                 send beta Hello beta
                 test alpha 20 5
                 stop alpha
@@ -29,12 +47,32 @@ class SwarmConsoleTest {
                 quit
                 """);
         assertTrue(output.contains("Swarm started | name=alpha | servers=2"), output);
-        assertTrue(output.contains("serverId=alpha-Server-002"), output);
-        assertTrue(output.contains("result=30"), output);
-        assertTrue(output.contains("result=\"Received: Hello beta\""), output);
+        var reply = Pattern.compile("Swarm reply \\| messageId=([^ ]+) \\| serverId=([^ ]+)"
+                + " \\| connectionId=(\\d+) \\| status=([^ ]+) \\| result=([^\\r\\n]+)").matcher(output);
+        var results = new HashMap<String, String>();
+        var messages = new HashSet<UUID>();
+        while (reply.find()) {
+            assertTrue(messages.add(UUID.fromString(reply.group(1))), "Each server request must use a different message ID");
+            assertTrue(Long.parseLong(reply.group(3)) > 0, output);
+            assertEquals("OK", reply.group(4), output);
+            assertNull(results.put(reply.group(2), reply.group(5)), "Unexpected duplicate reply from a server");
+        }
+        assertEquals(Map.of("alpha-Server-001", "\"Received: Hello alpha\"",
+                "alpha-Server-002", "\"Received: Hello alpha\"", "beta-Server-001", "\"Received: Hello beta\""), results, output);
         assertTrue(output.contains("completed=20/20"), output);
         assertTrue(output.contains("Swarm test PASSED | swarm=alpha | requests=20 | passed=20 | failed=0"), output);
-        assertTrue(output.contains("alive=true"), output);
+        var status = Pattern.compile("Swarm status \\| name=([^ ]+) \\| serverId=([^ ]+)"
+                + " \\| main=localhost:\\d+ \\| admin=localhost:\\d+ \\| alive=(true|false)").matcher(output);
+        var liveServers = new HashSet<String>();
+        while (status.find()) {
+            assertEquals("true", status.group(3), output);
+            assertTrue(liveServers.add(status.group(2)), "Unexpected duplicate server status");
+            if (status.group(1).equals("beta")) {
+                int stopped = output.indexOf("Swarm stopped | name=alpha");
+                assertTrue(stopped >= 0 && stopped < status.start(), "Beta must remain healthy after alpha stops");
+            }
+        }
+        assertEquals(Set.of("alpha-Server-001", "alpha-Server-002", "beta-Server-001"), liveServers, output);
         assertTrue(output.contains("All swarms stopped"), output);
         assertTrue(output.contains("No running swarms"), output);
         assertFalse(output.contains("Error:"), output);
