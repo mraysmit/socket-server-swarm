@@ -30,7 +30,8 @@ Enter these commands in the harness console, one at a time:
 ```text
 start alpha 3
 start beta 2
-list
+listK PROCEED
+
 status
 send alpha {"instruction":"echo","parameters":{"text":"Hello alpha"}}
 send beta {"instruction":"echo","parameters":{"text":"Hello beta"}}
