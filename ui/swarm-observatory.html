@@ -94,9 +94,9 @@ svg{display:block;width:100%;height:auto}
 .node.sel .selring,.node:focus-visible .selring{display:block}
 .grp{font-family:var(--mono);font-size:11px;fill:var(--mute);text-anchor:middle}
 .badge{stroke:var(--panel);stroke-width:2}
-.b-ALIVE{fill:var(--ok)} .b-SUSPECT{fill:var(--warn)} .b-DEAD{fill:var(--bad)} .b-LEFT{fill:var(--gone)} .b-NONE{fill:var(--panel);stroke:var(--mute);stroke-width:1.5}
+.b-ALIVE{fill:var(--ok)} .b-SUSPECT{fill:var(--warn)} .b-DEAD{fill:var(--bad)} .b-LEFT{fill:var(--gone)} .b-NONE,.b-CANDIDATE{fill:var(--panel);stroke:var(--mute);stroke-width:1.5}
 .eye{stroke-width:1.5;opacity:.45;fill:none}
-.eye.ALIVE{stroke:var(--ok)} .eye.SUSPECT{stroke:var(--warn);stroke-dasharray:4 4} .eye.DEAD{stroke:var(--bad);stroke-dasharray:2 5} .eye.LEFT{stroke:var(--gone);stroke-dasharray:1 6}
+.eye.ALIVE{stroke:var(--ok)} .eye.SUSPECT{stroke:var(--warn);stroke-dasharray:4 4} .eye.DEAD{stroke:var(--bad);stroke-dasharray:2 5} .eye.LEFT,.eye.CANDIDATE{stroke:var(--gone);stroke-dasharray:1 6}
 .pulse{fill:var(--accent)}
 .pulse.rep{opacity:.65}
 .pulse.drop{fill:var(--bad)}
@@ -109,8 +109,10 @@ svg{display:block;width:100%;height:auto}
 .insp-head .id{font-family:var(--mono);font-size:15px;font-weight:500;word-break:break-all}
 .pillrow{display:flex;gap:6px;flex-wrap:wrap}
 .pill{font-family:var(--mono);font-size:11px;letter-spacing:.04em;border-radius:4px;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
-.p-ALIVE,.p-RUNNING,.p-COMPLETED{color:var(--ok)} .p-SUSPECT,.p-LEAVING,.p-DISSEMINATING,.p-STARTING{color:var(--warn)}
-.p-DEAD,.p-STOPPED{color:var(--bad)} .p-LEFT,.p-QUIESCED,.p-NOT_REQUESTED{color:var(--gone)}
+.p-ALIVE,.p-RUNNING,.p-COMPLETED{color:var(--ok)}
+.p-SUSPECT,.p-LEAVING,.p-DISSEMINATING,.p-STARTING,.p-INITIALIZING,.p-STOPPING,.p-EXHAUSTED{color:var(--warn)}
+.p-DEAD,.p-STOPPED,.p-FAILED,.p-CLEANUP_FAILED{color:var(--bad)}
+.p-LEFT,.p-QUIESCED,.p-NOT_REQUESTED,.p-CANDIDATE,.p-MANUAL,.p-CANCELLED{color:var(--gone)}
 dl.facts{margin:0;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;border-bottom:1px solid var(--line)}
 dl.facts dt{color:var(--mute)} dl.facts dd{margin:0;font-family:var(--mono);font-size:12px;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .actions{padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--line)}
@@ -148,7 +150,7 @@ body{margin:0}
   <div class="top">
     <div class="brand">
       <h1>Swarm Observatory</h1>
-      <span class="tag">Mockup · simulated swarm</span>
+      <span class="tag" id="modetag">Simulated swarm</span>
       <span class="clock" id="clock">t+0s</span>
     </div>
     <div class="bar-controls" role="toolbar" aria-label="Simulation controls">
@@ -167,7 +169,7 @@ body{margin:0}
     <aside class="card" aria-label="Swarms">
       <header><h2>Swarms</h2></header>
       <div class="swarms" id="swarms"></div>
-      <p class="hint">Demo timings: round 1 s, suspect after 7 s, dead after 16 s. Real values are set in the gossip config.</p>
+      <p class="hint" id="hint">Demo timings: round 1 s, suspect after 7 s, dead after 16 s. Real values are set in the gossip config.</p>
     </aside>
 
     <main class="card stage" aria-label="Swarm graph">
@@ -180,8 +182,8 @@ body{margin:0}
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--gone)" stroke-width="3" stroke-dasharray="1.5 4" stroke-linecap="round"/></svg>Left</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="30 44" transform="rotate(-90 9 9)"/></svg>Share of live peers this server sees</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="5" fill="var(--warn)"/></svg>Badge: how the selected server rates it</span>
-        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--accent)"/></svg>Exchange in flight</span>
-        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--bad)"/></svg>Exchange failed</span>
+        <span class="simonly"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--accent)"/></svg>Exchange in flight</span>
+        <span class="simonly"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--bad)"/></svg>Exchange failed</span>
       </div>
     </main>
 
@@ -217,6 +219,8 @@ const NS='http://www.w3.org/2000/svg';
 const $=s=>document.querySelector(s);
 const CFG={round:1000,suspect:7000,dead:16000,retain:32000,travel:650,fanout:2,leaveBudget:2500};
 let T=0,nodes=[],pulses=[],sel=null,paused=false,speed=1,partition=false,logs=[],portN=0;
+/* Live mode reads /api/snapshot from the harness that served this page; otherwise a simulated swarm runs in the browser. */
+let LIVE=false,lastOk=0,pollFailures=0,seenSwarms=new Set(),actionBusy=false,actionNote='';
 const announced=new Set(),convState={};
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd=(a,b)=>a+Math.random()*(b-a);
@@ -235,11 +239,12 @@ function mk(swarm,n,delay){
   o.admin=o.main+1;nodes.push(o);return o;
 }
 const state=o=>!o.started?'start':o.left?'left':!o.up?'down':'up';
-const worker=o=>!o.started?'STARTING':!o.up?'STOPPED':o.left?(T<o.depEnd?'LEAVING':'QUIESCED'):'RUNNING';
+const worker=o=>LIVE?(o.gossip?o.workerState:(o.up?'ALIVE':'STOPPED')):
+  !o.started?'STARTING':!o.up?'STOPPED':o.left?(T<o.depEnd?'LEAVING':'QUIESCED'):'RUNNING';
 const selfKey=o=>keyOf(o.id,o.boot);
 const selfE=o=>o.view.get(selfKey(o));
 function putSelf(o){o.view.set(selfKey(o),{id:o.id,boot:o.boot,hb:o.hb,adv:T,left:false,as:'ALIVE'});}
-function assess(e){if(e.left)return'LEFT';const a=T-e.adv;return a>CFG.dead?'DEAD':a>CFG.suspect?'SUSPECT':'ALIVE';}
+function assess(e){if(LIVE)return e.rating||'ALIVE';if(e.left)return'LEFT';const a=T-e.adv;return a>CFG.dead?'DEAD':a>CFG.suspect?'SUSPECT':'ALIVE';}
 const batch=o=>[...o.view.values()].map(e=>({id:e.id,boot:e.boot,hb:e.hb,left:e.left}));
 
 function merge(to,b,direct){
@@ -279,11 +284,19 @@ function deliver(p){
     pulses.push({from:to,to:p.from,t0:T,t1:T+CFG.travel,reply:true,drop:false,batch:batch(to),direct:selfKey(to)});
   }else if(p.to.up){merge(p.to,p.batch,p.direct);p.to.isolated=false;}
 }
+/* How a view rates server m. A server that has not answered yet has no known boot ID, so its newest record is used. */
+function entryFor(view,m){
+  const exact=view.get(selfKey(m));
+  if(exact||m.boot)return exact;
+  let best=null;
+  for(const e of view.values())if(e.id===m.id&&(!best||e.hb>best.hb))best=e;
+  return best;
+}
 function know(o){
-  if(!o.up||o.left||!o.started)return null;
-  const live=nodes.filter(m=>m.swarm===o.swarm&&m.started&&m.up&&!m.left);
-  let c=0;for(const m of live){const e=o.view.get(selfKey(m));if(e&&assess(e)==='ALIVE')c++;}
-  return{c,n:live.length};
+  if(!o.up||o.left||!o.started||(LIVE&&!o.gossip))return null;
+  const running=nodes.filter(m=>m.swarm===o.swarm&&m.started&&m.up&&!m.left);
+  let c=0;for(const m of running){const e=entryFor(o.view,m);if(e&&assess(e)==='ALIVE')c++;}
+  return{c,n:running.length};
 }
 function conv(s){
   const ks=nodes.filter(n=>n.swarm===s).map(know).filter(Boolean);
@@ -304,31 +317,103 @@ function step(dt){
     }
     if(o.left&&o.dep==='DISSEMINATING'&&T>=o.depEnd)o.dep='COMPLETED';
     for(const [k,e] of o.view){
-      if(e.id===o.id)continue;
-      if(T-e.adv>CFG.retain){o.tomb.set(k,e.hb);o.view.delete(k);continue;}
-      const a=assess(e);
-      if(a!==e.as){
-        const prev=e.as;e.as=a;const cur=byId(e.id);
-        if(cur&&cur.boot!==e.boot)continue;
-        const tag=k+'|'+a;
-        if((a==='SUSPECT'||a==='DEAD'||a==='LEFT')&&!announced.has(tag)){
-          announced.add(tag);announced.delete(k+'|REC');
-          ev(a==='LEFT'?'left':a.toLowerCase(),a==='LEFT'?`${e.id} departed; ${o.id} was first to record it`:`${o.id} now rates ${e.id} ${a}`);
-        }else if(a==='ALIVE'&&(prev==='SUSPECT'||prev==='DEAD')&&!announced.has(k+'|REC')){
-          announced.add(k+'|REC');announced.delete(k+'|SUSPECT');announced.delete(k+'|DEAD');
-          ev('recovered',`${o.id} sees ${e.id} ALIVE again`);
-        }
-      }
+      if(e.id!==o.id&&T-e.adv>CFG.retain){o.tomb.set(k,e.hb);o.view.delete(k);}
     }
+    watch(o);
   }
   for(const p of pulses)if(T>=p.t1){p.done=true;deliver(p);}
   pulses=pulses.filter(p=>{if(p.done){if(p.el)p.el.remove();return false;}return true;});
-  if(T-lastConv>500){lastConv=T;
-    for(const s of swarms()){
-      const c=conv(s),n=nodes.filter(m=>m.swarm===s&&m.started&&m.up&&!m.left).length;
-      if(c!==null&&c>.999&&!convState[s]&&n>1){convState[s]=true;ev('converged',`${s}: all ${n} live servers see each other`);}
-      else if(c!==null&&c<.999)convState[s]=false;
-    }}
+  if(T-lastConv>500){lastConv=T;checkConverged(true);}
+}
+/* Logs a change in how one server rates another; each change is reported once per subject, by the first observer. */
+function watch(o){
+  for(const [k,e] of o.view){
+    if(e.id===o.id)continue;
+    const a=assess(e);
+    if(a===e.as)continue;
+    const prev=e.as;e.as=a;const cur=byId(e.id);
+    if(cur&&cur.boot!==e.boot)continue;
+    const tag=k+'|'+a;
+    if((a==='SUSPECT'||a==='DEAD'||a==='LEFT')&&!announced.has(tag)){
+      announced.add(tag);announced.delete(k+'|REC');
+      ev(a==='LEFT'?'left':a.toLowerCase(),a==='LEFT'?`${e.id} departed; ${o.id} was first to record it`:`${o.id} now rates ${e.id} ${a}`);
+    }else if(a==='ALIVE'&&(prev==='SUSPECT'||prev==='DEAD')&&!announced.has(k+'|REC')){
+      announced.add(k+'|REC');announced.delete(k+'|SUSPECT');announced.delete(k+'|DEAD');
+      ev('recovered',`${o.id} sees ${e.id} ALIVE again`);
+    }
+  }
+}
+/* With announce false the state is recorded silently, so a page loaded on a converged swarm logs nothing. */
+function checkConverged(announce){
+  for(const s of swarms()){
+    const c=conv(s),n=nodes.filter(m=>m.swarm===s&&m.started&&m.up&&!m.left).length;
+    if(c!==null&&c>.999&&!convState[s]&&n>1){convState[s]=true;if(announce)ev('converged',`${s}: all ${n} live servers see each other`);}
+    else if(c!==null&&c<.999)convState[s]=false;
+  }
+}
+
+/* live mode: fold one /api/snapshot into the same model the simulator uses */
+function liveNode(id,swarm){
+  const m=/-Server-(\d+)$/.exec(id);
+  const o={id,swarm,n:m?parseInt(m[1],10):nodes.length+1,boot:'',hb:0,started:true,up:false,left:false,main:0,admin:0,
+    view:new Map(),tomb:new Map(),seeds:[],rounds:0,inbound:0,failed:0,isolated:false,dep:'NOT_REQUESTED',depEnd:0,
+    nextRound:0,group:0,x:0,y:0,gossip:false,workerState:'',truncated:false};
+  nodes.push(o);return o;
+}
+function applyGossip(o,g,announce){
+  const st=g&&g.status;
+  o.gossip=!!st;o.truncated=false;
+  if(!st){return;}
+  const prevBoot=o.boot,prevDep=o.dep;
+  const self=st.self||{};
+  o.boot=self.bootId||'';o.hb=Number(self.heartbeat)||0;
+  o.workerState=st.workerState||'';o.isolated=!!st.isolated;
+  o.dep=(st.departure&&st.departure.state)||'NOT_REQUESTED';
+  o.left=o.dep!=='NOT_REQUESTED'||self.state==='LEFT';
+  o.rounds=(st.runtime&&st.runtime.rounds)||0;
+  o.inbound=(st.exchanges&&st.exchanges.inbound)||0;
+  o.failed=(st.exchanges&&st.exchanges.outboundFailures)||0;
+  if(announce){
+    if(prevBoot&&prevBoot!==o.boot)ev('restarted',`${o.id} restarted with new bootId ${o.boot.slice(0,4)}`);
+    if(prevDep==='NOT_REQUESTED'&&o.dep!=='NOT_REQUESTED')ev('leaving',`${o.id} began a graceful departure`);
+  }
+  const page=g.members||{};
+  const rows=[{r:self,age:0,rating:self.state==='LEFT'?'LEFT':'ALIVE'}];
+  for(const m of page.members||[])rows.push({r:m,age:Number(m.advanceAgeMillis)||0,rating:m.assessment});
+  const keep=new Set();
+  for(const x of rows){
+    if(!x.r.serverId)continue;
+    const k=keyOf(x.r.serverId,x.r.bootId);keep.add(k);
+    const rating=x.r.state==='LEFT'?'LEFT':x.rating;
+    let e=o.view.get(k);
+    if(!e){e={id:x.r.serverId,boot:x.r.bootId,hb:0,adv:0,left:false,rating,as:rating};o.view.set(k,e);}
+    e.hb=Number(x.r.heartbeat)||0;e.adv=T-x.age;e.left=x.r.state==='LEFT';e.rating=rating;
+  }
+  for(const k of [...o.view.keys()])if(!keep.has(k))o.view.delete(k);
+  o.truncated=!!page.nextCursor;
+}
+function applySnapshot(snap,first){
+  const announce=!first,present=new Set(),names=new Set();
+  for(const sw of snap.swarms){
+    names.add(sw.name);
+    for(const s of sw.servers){
+      present.add(s.serverId);
+      let o=byId(s.serverId);const isNew=!o;
+      if(isNew){o=liveNode(s.serverId,sw.name);if(announce)ev('started',`${o.id} appeared on :${s.mainPort}`);}
+      const wasUp=o.up;
+      o.main=s.mainPort;o.admin=s.adminPort;o.up=!!s.alive;
+      if(!isNew&&wasUp&&!o.up&&announce)ev('stopped',`${o.id} is no longer answering`);
+      if(!isNew&&!wasUp&&o.up&&announce)ev('restarted',`${o.id} is answering again`);
+      if(s.gossip)applyGossip(o,s.gossip,announce);
+      else{o.gossip=false;o.view=new Map();o.truncated=false;}
+    }
+  }
+  for(const name of seenSwarms)if(!names.has(name)&&announce)ev('stopped',`swarm ${name} was stopped`);
+  seenSwarms=names;
+  nodes=nodes.filter(o=>present.has(o.id));
+  if(!sel||!nodes.includes(sel))sel=nodes[0]||null;
+  for(const o of nodes)if(o.gossip)watch(o);
+  checkConverged(announce);
 }
 
 /* actions */
@@ -382,15 +467,16 @@ function setHTML(el,html){
 const C=2*Math.PI*33;
 function renderGraph(){
   const labels=layout();let under='',top='';
+  if(!nodes.length)under+=`<text x="500" y="300" text-anchor="middle" style="font-size:20px;fill:var(--ink)">No swarms running</text><text x="500" y="334" text-anchor="middle" class="slabel" style="letter-spacing:.04em;text-transform:none">Start one in the harness console, for example: start alpha 3</text>`;
   for(const l of labels){const c=conv(l.s);under+=`<text class="slabel" x="${l.x}" y="${l.y}">${esc(l.s)} · ${nodes.filter(n=>n.swarm===l.s).length} servers${c===null?'':' · '+Math.round(c*100)+'%'}</text>`;}
   if(sel&&sel.up&&sel.started){
-    for(const o of nodes){if(o===sel)continue;const e=sel.view.get(selfKey(o));
+    for(const o of nodes){if(o===sel)continue;const e=entryFor(sel.view,o);
       if(e)under+=`<line class="eye ${assess(e)}" x1="${sel.x}" y1="${sel.y}" x2="${o.x}" y2="${o.y}"/>`;}
   }
   for(const o of nodes){
     const st=state(o),k=know(o),f=k?k.c/k.n:0;
     let badge='';
-    if(sel&&sel!==o&&sel.started&&sel.up){const e=sel.view.get(selfKey(o));badge=`<circle class="badge b-${e?assess(e):'NONE'}" cx="22" cy="-22" r="7"/>`;}
+    if(sel&&sel!==o&&sel.started&&sel.up){const e=entryFor(sel.view,o);badge=`<circle class="badge b-${e?assess(e):'NONE'}" cx="22" cy="-22" r="7"/>`;}
     const stName={up:'running',down:'stopped',left:'left',start:'starting'}[st];
     top+=`<g class="node st-${st}${sel===o?' sel':''}" data-id="${o.id}" data-key="n-${o.id}" tabindex="0" role="button" aria-label="${o.id}, ${stName}${k?', sees '+k.c+' of '+k.n+' live servers':''}" transform="translate(${o.x.toFixed(1)} ${o.y.toFixed(1)})">
       <title>${o.id} · ${stName}</title>
@@ -426,26 +512,54 @@ function renderSwarms(){
 }
 function pill(t){return `<span class="pill p-${t}">${t.replace('_',' ')}</span>`;}
 function renderPanel(){
-  const o=sel;if(!o)return;
+  const o=sel;
+  if(!o){
+    setHTML($('#insp-head'),'<div class="insp-head"><div class="id">No server selected</div></div>');
+    setHTML($('#insp-facts'),'');setHTML($('#insp-actions'),'');setHTML($('#insp-table'),'');
+    return;
+  }
   setHTML($('#insp-head'),`<div class="insp-head"><h2 class="mono" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:500">Server</h2><div class="id">${o.id}</div><div class="pillrow">${pill(worker(o))}${pill(o.dep)}</div></div>`);
   const k=know(o);
-  setHTML($('#insp-facts'),`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Boot ID</dt><dd>${o.boot}</dd><dt>Heartbeat</dt><dd>${o.hb}</dd><dt>Rounds</dt><dd>${o.rounds}</dd><dt>Exchanges received</dt><dd>${o.inbound}</dd><dt>Failed outbound</dt><dd>${o.failed}</dd><dt>Isolated</dt><dd>${o.started&&o.isolated?'true':'false'}</dd><dt>Sees live peers</dt><dd>${k?k.c+' of '+k.n:'—'}</dd></dl>`);
-  const canLeave=o.up&&!o.left,canStop=o.up,canRestart=o.started&&(!o.up||o.left);
-  setHTML($('#insp-actions'),`<div class="actions"><button class="btn" data-act="leave" data-key="a-leave" ${canLeave?'':'disabled'} title="gossip operation: leave">Leave gracefully</button><button class="btn danger" data-act="stop" data-key="a-stop" ${canStop?'':'disabled'} title="Close the server without publishing LEFT">Stop</button><button class="btn" data-act="restart" data-key="a-restart" ${canRestart?'':'disabled'} title="Start again with a new boot ID">Restart</button></div>`);
+  const noGossip=LIVE&&!o.gossip;
+  const facts=noGossip
+    ?`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Admin status</dt><dd>${o.up?'ALIVE':'not answering'}</dd></dl>`
+    :`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Boot ID</dt><dd>${o.boot}</dd><dt>Heartbeat</dt><dd>${o.hb}</dd><dt>Rounds</dt><dd>${o.rounds}</dd><dt>Exchanges received</dt><dd>${o.inbound}</dd><dt>Failed outbound</dt><dd>${o.failed}</dd><dt>Isolated</dt><dd>${o.started&&o.isolated?'true':'false'}</dd><dt>Sees live peers</dt><dd>${k?k.c+' of '+k.n:'—'}</dd></dl>`;
+  setHTML($('#insp-facts'),facts);
+  const canLeave=o.up&&!o.left&&(!LIVE||o.gossip)&&!actionBusy,canStop=o.up&&!actionBusy,canRestart=o.started&&(!o.up||o.left)&&!actionBusy;
+  const leaveTip=LIVE&&!o.gossip?'Needs the gossip plugin (start the harness with --gossip)':'Publish a graceful departure to the gossip peers';
+  setHTML($('#insp-actions'),`<div class="actions"><button class="btn" data-act="leave" data-key="a-leave" ${canLeave?'':'disabled'} title="${leaveTip}">Leave gracefully</button><button class="btn danger" data-act="stop" data-key="a-stop" ${canStop?'':'disabled'} title="Close the server without telling its peers">Stop</button><button class="btn" data-act="restart" data-key="a-restart" ${canRestart?'':'disabled'} title="Start again with a new boot ID">Restart</button></div>${actionNote?`<p class="hint" role="status" style="border:0">${esc(actionNote)}</p>`:''}`);
   const rows=[...o.view.values()].sort((a,b)=>a.id.localeCompare(b.id)||a.boot.localeCompare(b.boot));
+  const empty=noGossip?'The gossip plugin is not loaded on this server, or it is not answering.':'No members known yet';
+  const more=o.truncated?'<p class="hint" style="border:0">Showing the first page of members only.</p>':'';
   setHTML($('#insp-table'),`<table><thead><tr><th>Member</th><th>Rated</th><th class="r">Beat</th><th class="r">Age</th></tr></thead><tbody>${
-    rows.map(e=>{const a=assess(e),cur=byId(e.id),old=cur&&cur.boot!==e.boot;
-      return `<tr class="${old?'old':''}"><td class="m">${e.id.split('-Server-')[0].slice(0,1)}·${e.id.slice(-3)} <span class="old">${e.boot.slice(0,4)}${old?' old':''}</span></td><td>${pill(a)}</td><td class="r">${e.hb}</td><td class="r">${e.id===o.id?'self':Math.floor((T-e.adv)/1000)+'s'}</td></tr>`;}).join('')||'<tr><td colspan="4" class="old">No members known yet</td></tr>'}</tbody></table>`);
+    rows.map(e=>{const a=assess(e),cur=byId(e.id),old=cur&&cur.boot&&cur.boot!==e.boot;
+      return `<tr class="${old?'old':''}"><td class="m">${e.id.split('-Server-')[0].slice(0,1)}·${e.id.slice(-3)} <span class="old">${e.boot.slice(0,4)}${old?' old':''}</span></td><td>${pill(a)}</td><td class="r">${e.hb}</td><td class="r">${e.id===o.id&&e.boot===o.boot?'self':Math.floor((T-e.adv)/1000)+'s'}</td></tr>`;}).join('')||`<tr><td colspan="4" class="old" style="white-space:normal">${empty}</td></tr>`}</tbody></table>${more}`);
 }
 function renderLog(){
+  if(!logs.length){
+    setHTML($('#log'),`<li style="grid-template-columns:1fr;color:var(--mute)">${LIVE?'No changes since this page was opened. New starts, stops, departures and rating changes appear here.':'No events yet.'}</li>`);
+    return;
+  }
   setHTML($('#log'),logs.map(l=>`<li><span class="t">t+${(l.t/1000).toFixed(1)}s</span><span class="k k-${l.kind}">${l.kind}</span><span>${esc(l.msg)}</span></li>`).join(''));
 }
 function renderAll(){
-  $('#clock').textContent=`t+${(T/1000).toFixed(0)}s`;
+  const banner=$('#banner');
+  if(LIVE){
+    const ago=Math.max(0,Math.round((T-lastOk)/1000));
+    $('#clock').textContent=pollFailures>0?`last update ${ago}s ago`:'live';
+    banner.hidden=pollFailures<2;
+    banner.textContent=`Lost contact with the harness. Showing the snapshot from ${ago}s ago; retrying.`;
+  }else{
+    $('#clock').textContent=`t+${(T/1000).toFixed(0)}s`;
+    banner.hidden=!partition;
+    banner.textContent=PARTITION_NOTE;
+  }
   renderGraph();renderSwarms();renderPanel();renderLog();
-  $('#banner').hidden=!partition;$('#partition').setAttribute('aria-pressed',partition);
-  $('#pause').setAttribute('aria-pressed',paused);$('#pause').textContent=paused?'Resume':'Pause';
+  $('#partition').setAttribute('aria-pressed',partition);
+  $('#pause').setAttribute('aria-pressed',paused);
+  $('#pause').textContent=paused?'Resume':(LIVE?'Pause updates':'Pause');
 }
+const PARTITION_NOTE=$('#banner').textContent;
 
 /* events */
 function select(id){sel=byId(id)||sel;renderAll();}
@@ -453,10 +567,24 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
   const a=b.dataset.act;
   if(a==='select')select(b.dataset.id);
+  else if(LIVE&&sel&&(a==='leave'||a==='stop'||a==='restart'))runAction(a,sel);
   else if(a==='leave'&&sel){leave(sel);renderAll();}
   else if(a==='stop'&&sel){stop(sel);renderAll();}
   else if(a==='restart'&&sel){restart(sel);renderAll();}
 });
+/* live mode: ask the harness to act on one server, then refresh at once instead of waiting for the next poll */
+async function runAction(act,o){
+  if(actionBusy)return;
+  actionBusy=true;actionNote={leave:'Leaving',stop:'Stopping',restart:'Restarting'}[act]+' '+o.id+'…';renderAll();
+  try{
+    const r=await fetch('/api/servers/'+encodeURIComponent(o.id)+'/'+act,{method:'POST',headers:{'X-Swarm-UI':'1'},cache:'no-store'});
+    const j=await r.json().catch(()=>({}));
+    actionNote=r.ok?'':(j.error||('The harness answered HTTP '+r.status));
+  }catch{actionNote='Could not reach the harness.';}
+  actionBusy=false;
+  try{applySnapshot(await fetchSnapshot(),false);lastOk=T;pollFailures=0;}catch{pollFailures++;}
+  renderAll();
+}
 const stage=$('#stage');
 stage.addEventListener('pointerdown',e=>{const g=e.target.closest('.node');if(g)select(g.dataset.id);});
 stage.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const g=e.target.closest('.node');if(g){e.preventDefault();select(g.dataset.id);}}});
@@ -466,22 +594,61 @@ $('#partition').addEventListener('click',()=>{setPartition(!partition);renderAll
 $('#newswarm').addEventListener('click',()=>{newSwarm();renderAll();});
 $('#addserver').addEventListener('click',()=>{addServer();renderAll();});
 
-/* boot: two swarms starting up, pre-run so the first frame is already converged */
-[0,500,1000,1600,2200].forEach((d,i)=>mk('alpha',i+1,d));
-[800,1300,1900].forEach((d,i)=>mk('beta',i+1,d));
-sel=byId('alpha-Server-002');
-for(let i=0;i<170;i++)step(100);
-pulses=[];
+/* boot: use the harness that served this page when it answers, otherwise run the simulation */
+const t0=performance.now();
+async function fetchSnapshot(){
+  const opts={cache:'no-store'};
+  if(typeof AbortSignal!=='undefined'&&AbortSignal.timeout)opts.signal=AbortSignal.timeout(5000);
+  const r=await fetch('/api/snapshot',opts);
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  if(!j||!Array.isArray(j.swarms))throw new Error('Unexpected reply');
+  return j;
+}
+async function poll(){
+  if(!paused){
+    try{applySnapshot(await fetchSnapshot(),false);lastOk=T;pollFailures=0;}
+    catch{pollFailures++;}
+  }
+  setTimeout(poll,1000);
+}
+function enterLiveMode(){
+  LIVE=true;
+  $('#modetag').textContent='Live · '+location.host;
+  for(const id of['speed','partition','newswarm','addserver'])$('#'+id).hidden=true;
+  document.querySelectorAll('.sep,.simonly').forEach(el=>{el.hidden=true;});
+  $('#hint').textContent='Ratings are each server’s own gossip view of its peers. Timings come from the gossip settings on each server. Servers without the plugin show only whether they answer.';
+}
+function startSimulation(){
+  [0,500,1000,1600,2200].forEach((d,i)=>mk('alpha',i+1,d));
+  [800,1300,1900].forEach((d,i)=>mk('beta',i+1,d));
+  sel=byId('alpha-Server-002');
+  for(let i=0;i<170;i++)step(100);
+  pulses=[];
+}
 let last=performance.now(),lastR=0;
 function frame(ts){
   const dt=Math.min(ts-last,100);last=ts;
-  if(!paused)step(dt*speed);
+  if(LIVE)T=ts-t0;else if(!paused)step(dt*speed);
   updatePulses();
   if(ts-lastR>200){lastR=ts;renderAll();}
   requestAnimationFrame(frame);
 }
-renderAll();updatePulses();
-requestAnimationFrame(frame);
+async function boot(){
+  if(location.protocol==='http:'||location.protocol==='https:'){
+    try{
+      const first=await fetchSnapshot();
+      enterLiveMode();
+      T=performance.now()-t0;
+      applySnapshot(first,true);lastOk=T;
+      setTimeout(poll,1000);
+    }catch{ /* not served by the harness: fall through to the simulation */ }
+  }
+  if(!LIVE)startSimulation();
+  renderAll();updatePulses();
+  requestAnimationFrame(frame);
+}
+boot();
 })();
 </script>
 </body>

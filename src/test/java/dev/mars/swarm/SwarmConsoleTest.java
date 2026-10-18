@@ -159,6 +159,31 @@ class SwarmConsoleTest {
     }
 
     @Test
+    void serverCommandsStopAndRestartOneServerAndReportMisuse() throws Exception {
+        String output = run("""
+                start solo 2
+                server stop solo-Server-002
+                status solo
+                server restart solo-Server-002
+                status solo
+                server leave solo-Server-001
+                server stop missing-Server-001
+                server explode solo-Server-001
+                server stop
+                quit
+                """);
+        assertTrue(output.contains("Server stopped | serverId=solo-Server-002"), output);
+        assertTrue(output.contains("Server restarted | serverId=solo-Server-002"), output);
+        var statuses = Pattern.compile("Swarm status \\| name=solo \\| serverId=solo-Server-002 [^\\r\\n]*alive=(true|false)").matcher(output);
+        var alive = new java.util.ArrayList<String>();
+        while (statuses.find()) { alive.add(statuses.group(1)); }
+        assertEquals(java.util.List.of("false", "true"), alive, output);
+        assertTrue(output.contains("Gossip is not enabled"), output);
+        assertTrue(output.contains("Unknown server: missing-Server-001"), output);
+        assertTrue(output.contains("Usage: server <stop|leave|restart> <id>"), output);
+    }
+
+    @Test
     void eofReturnsAndOwnerClosesSwarms() throws Exception {
         var manager = new SwarmManager();
         try (manager) {

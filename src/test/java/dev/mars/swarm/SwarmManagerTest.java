@@ -218,6 +218,67 @@ class SwarmManagerTest {
         assertThrows(IllegalStateException.class, () -> manager.start("closed", 1));
     }
 
+    @Test
+    void stopsAndRestartsOneServerOnItsSamePortsWithoutTouchingItsPeers() throws Exception {
+        try (var manager = new SwarmManager()) {
+            var endpoints = manager.start("solo", 3);
+            var target = endpoints.get(1);
+            manager.stopServer(target.serverId());
+            var status = manager.status("solo");
+            assertTrue(status.get(0).alive());
+            assertFalse(status.get(1).alive());
+            assertTrue(status.get(2).alive());
+            assertEquals(target, manager.list().get("solo").get(1), "A stopped server stays listed with its ports");
+
+            assertEquals(target, manager.restartServer(target.serverId()));
+            assertTrue(manager.status("solo").stream().allMatch(ServerStatus::alive));
+            var replies = manager.send("solo", "after restart");
+            assertEquals(3, replies.size());
+            assertTrue(replies.stream().allMatch(reply -> reply.result().equals("Received: after restart")));
+
+            // Restarting a server that is still running replaces it.
+            assertEquals(target, manager.restartServer(target.serverId()));
+            assertTrue(manager.status("solo").stream().allMatch(ServerStatus::alive));
+        }
+    }
+
+    @Test
+    void serverOperationsRejectUnknownServersAndLeaveNeedsGossip() throws Exception {
+        try (var manager = new SwarmManager()) {
+            manager.start("solo", 2);
+            for (String id : new String[]{null, "", "solo", "solo-Server-003", "solo-Server-000", "other-Server-001", "solo-Server-1"}) {
+                assertThrows(IllegalArgumentException.class, () -> manager.stopServer(id), String.valueOf(id));
+                assertThrows(IllegalArgumentException.class, () -> manager.restartServer(id), String.valueOf(id));
+            }
+            var error = assertThrows(IllegalStateException.class, () -> manager.leaveServer("solo-Server-001"));
+            assertTrue(error.getMessage().contains("--gossip"));
+            manager.stop("solo");
+            assertThrows(IllegalArgumentException.class, () -> manager.stopServer("solo-Server-001"));
+        }
+        var closed = new SwarmManager();
+        closed.start("gone", 1);
+        closed.close();
+        assertThrows(IllegalStateException.class, () -> closed.stopServer("gone-Server-001"));
+        assertThrows(IllegalStateException.class, () -> closed.restartServer("gone-Server-001"));
+    }
+
+    @Test
+    void failedRestartKeepsTheServerListedAndReportsWhy() throws Exception {
+        var attempts = new AtomicInteger();
+        try (var manager = new SwarmManager(List.of(), options -> {
+            if (attempts.incrementAndGet() == 2) { throw new IOException("Deliberate restart failure"); }
+            return ServerInstance.start(options);
+        })) {
+            var endpoint = manager.start("fragile", 1).getFirst();
+            var error = assertThrows(IOException.class, () -> manager.restartServer(endpoint.serverId()));
+            assertTrue(error.getMessage().contains("Deliberate restart failure"));
+            assertEquals(List.of(endpoint), manager.list().get("fragile"));
+            assertFalse(manager.status("fragile").getFirst().alive());
+            manager.restartServer(endpoint.serverId());
+            assertTrue(manager.status("fragile").getFirst().alive());
+        }
+    }
+
     private static void assertReleased(List<ServerEndpoint> endpoints) throws IOException {
         for (var endpoint : endpoints) {
             try (var main = new ServerSocket(endpoint.port()); var admin = new ServerSocket(endpoint.adminPort())) {

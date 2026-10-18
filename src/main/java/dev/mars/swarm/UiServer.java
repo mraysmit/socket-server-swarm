@@ -11,6 +11,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -20,14 +21,19 @@ public final class UiServer implements AutoCloseable {
     private static final String PAGE = "/ui/swarm-observatory.html";
     private static final Set<String> LOCAL_HOSTS = Set.of("localhost", "127.0.0.1", "[::1]");
 
+    /** Header a page must send with every action; cross-site requests cannot add it without a preflight, which is refused. */
+    public static final String ACTION_HEADER = "X-Swarm-UI";
+    private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart)");
+
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     /** Pass port 0 to let the operating system choose, as the tests do. */
     public UiServer(SwarmManager manager, int port) throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
-        server.createContext("/", exchange -> handle(exchange, () -> page(exchange)));
-        server.createContext("/api/snapshot", exchange -> handle(exchange, () -> snapshot(exchange, manager)));
+        server.createContext("/", exchange -> handle(exchange, "GET", () -> page(exchange)));
+        server.createContext("/api/snapshot", exchange -> handle(exchange, "GET", () -> snapshot(exchange, manager)));
+        server.createContext("/api/servers/", exchange -> handle(exchange, "POST", () -> action(exchange, manager)));
         server.setExecutor(executor);
         server.start();
     }
@@ -41,14 +47,47 @@ public final class UiServer implements AutoCloseable {
 
     private interface Route { void run() throws IOException; }
 
-    private void handle(HttpExchange exchange, Route route) throws IOException {
+    private void handle(HttpExchange exchange, String method, Route route) throws IOException {
         try (exchange) {
             if (!localHost(exchange.getRequestHeaders().getFirst("Host"))) { reply(exchange, 403, "text/plain", "Forbidden"); return; }
-            if (!exchange.getRequestMethod().equals("GET")) { reply(exchange, 405, "text/plain", "Only GET is supported"); return; }
+            if (!exchange.getRequestMethod().equals(method)) { reply(exchange, 405, "text/plain", "Only " + method + " is supported here"); return; }
+            if (method.equals("POST") && !sameOriginAction(exchange)) { reply(exchange, 403, "text/plain", "Forbidden"); return; }
             route.run();
         } catch (RuntimeException e) {
             reply(exchange, 500, "text/plain", "Internal error");
         }
+    }
+
+    /** An action must come from a page this server served: the Origin names this server and the custom header is present. */
+    private boolean sameOriginAction(HttpExchange exchange) {
+        String origin = exchange.getRequestHeaders().getFirst("Origin");
+        if (origin == null || exchange.getRequestHeaders().getFirst(ACTION_HEADER) == null) { return false; }
+        int port = port();
+        return Set.of("http://localhost:" + port, "http://127.0.0.1:" + port, "http://[::1]:" + port).contains(origin);
+    }
+
+    private void action(HttpExchange exchange, SwarmManager manager) throws IOException {
+        var matcher = ACTION_PATH.matcher(exchange.getRequestURI().getPath());
+        if (!matcher.matches()) { reply(exchange, 404, "application/json", error("Not found")); return; }
+        String serverId = matcher.group(1), what = matcher.group(2);
+        try {
+            switch (what) {
+                case "stop" -> manager.stopServer(serverId);
+                case "leave" -> manager.leaveServer(serverId);
+                default -> manager.restartServer(serverId);
+            }
+            reply(exchange, 200, "application/json", "{\"ok\":true}");
+        } catch (IllegalArgumentException e) {
+            reply(exchange, 404, "application/json", error(e.getMessage()));
+        } catch (IllegalStateException e) {
+            reply(exchange, 409, "application/json", error(e.getMessage()));
+        } catch (IOException e) {
+            reply(exchange, 500, "application/json", error(e.getMessage()));
+        }
+    }
+
+    private static String error(String message) throws IOException {
+        return Json.write(java.util.Map.of("ok", false, "error", String.valueOf(message)));
     }
 
     /** Refuses requests whose Host header is not a loopback name, which blocks DNS-rebinding reads from other sites. */

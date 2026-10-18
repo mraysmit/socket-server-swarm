@@ -59,6 +59,23 @@ Proposed class: `SwarmGossipTest`.
 3. A helper that sends the `members` and `status` gossip operations and parses the reply, so tests can poll for convergence.
 4. Release of the generated config file on `stop` and `close`.
 
+## Status
+
+The harness changes are done, with one difference from the list above: gossip is switched on for the whole harness (`--gossip` or `--gossip-fast`), not per `start` command. The new tests are in `SwarmGossipTest` and skip themselves if the plugin JAR has not been built.
+
+| # | Test | Status |
+| --- | --- | --- |
+| 1 | Convergence | Done (`serversConvergeAndReportTheirViewsThroughTheSnapshot`, also checks the snapshot) |
+| 2 | Failure detection | Done (`closedServerIsSuspectedByThePeersWhichStayHealthy`, checks SUSPECT or DEAD) |
+| 3 | Graceful departure | Done (`leavingServerIsMarkedLeftByThePeersQuickly`) |
+| 4 | Restart | Done (`restartedServerGetsANewBootIdAndRejoinsTheSwarm`: same ports, new boot ID, peers rate the new boot ALIVE) |
+| 5 | Swarm isolation | Done (`swarmsStaySeparateAndUseTheirOwnSwarmId`, and `swarmSeededAtAnotherSwarmRejectsItAndKeepsItsOwnMembers`, which seeds a beta server at an alpha server and checks that alpha turns the exchange away and neither swarm lists the other) |
+| 6 | Echo under gossip | Done (`echoTrafficStillWorksWhileTheServersGossip`, 300 requests while the servers converge) |
+| 7 | Console path | Done (`consoleStartsAGossipSwarmAndSendsAGracefulLeave`) |
+| 8 | Partition | Not done, on purpose. It needs a TCP relay between the servers, which the plugin's own repository already has and tests thoroughly. Building a second one here would duplicate it. |
+
+Also covered without the plugin: the generated config (swarm IDs, seeds, cleanup on stop, failure and close), the command-line options, stopping and restarting a single server, the `server` console commands, and the HTTP action endpoints with their cross-site protections.
+
 ## Risks and open questions
 
 - Convergence time depends on timing settings and machine load; the plugin's own six-node hostname test has missed a 20-second deadline once. Use generous deadlines and avoid asserting exact times.

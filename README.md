@@ -67,6 +67,7 @@ Swarm reply | messageId=<uuid> | serverId=alpha-Server-001 | connectionId=<id> |
 | `status [name]` | Query the admin status of one or all swarms |
 | `send <name> <text or JSON>` | Send to each server; plain text invokes `echo` |
 | `test <name> [requests] [clients]` | Run a verified load test; defaults: 1,000 requests, concurrency 100 |
+| `server <stop\|leave\|restart> <id>` | Act on one server by ID, for example `alpha-Server-002`. `stop` closes it without telling its peers and keeps it listed. `restart` starts it again on the same ports (a gossip server gets a new boot ID). `leave` publishes a graceful gossip departure and needs `--gossip`. |
 | `stop <name>` | Close every instance in one swarm |
 | `stop-all` | Close every managed instance |
 | `help` | Show commands |
@@ -94,13 +95,38 @@ reports an error if a server rejects a command or cannot be reached. This first
 version is an interactive harness; test failure is reported in its output.
 It does not supply a batch-mode exit code or performance benchmark guarantees.
 
+## Gossip
+
+With the gossip plugin built in the sibling `socket-server-threadpool` project, add
+`--gossip` (the plugin's default timings) or `--gossip-fast` (200 ms rounds, suspect
+after 4 s, dead after 10 s, for demos and tests) and point `--plugins-dir` at the
+plugin:
+
+```powershell
+mvn compile exec:java "-Dexec.args=--gossip-fast --plugins-dir ../socket-server-threadpool/plugins/gossip-plugin/target"
+```
+
+The harness writes the plugin's config file itself and sets `-Dgossip.config` for the
+JVM. Each swarm's name becomes its `swarm.id`. The first server of a swarm starts
+alone, and the others are given its actual port as their seed. The file is deleted and
+the property cleared when the harness closes. Without these options nothing changes.
+Check a server with
+`send alpha {"instruction":"gossip","parameters":{"operation":"members"}}`.
+
 ## Swarm UI
 
-The harness also starts a read-only HTTP endpoint on `http://localhost:8088/`. It
-serves the UI page and `GET /api/snapshot`, a JSON view of every swarm and server
-(ports, whether each is alive, and the gossip plugin's replies when the plugin is
-loaded). It listens on the loopback interface only and rejects other `Host` names.
-The page is currently a simulation and does not yet read the snapshot.
+The harness also starts an HTTP endpoint on `http://localhost:8088/`. It serves the
+UI page and `GET /api/snapshot`, a JSON view of every swarm and server (ports,
+whether each is alive, and the gossip plugin's replies when the plugin is loaded). It
+listens on the loopback interface only and rejects other `Host` names.
+Opened from that address, the page shows the live swarms and polls the snapshot
+every second. Opened as a plain file, it runs a simulated swarm instead. Gossip
+ratings appear only for servers that load the gossip plugin.
+
+In the live page, the Leave, Stop and Restart buttons for the selected server call
+`POST /api/servers/<id>/<leave|stop|restart>`, the same operations as the `server`
+console command. These requests are refused unless their `Origin` is the harness itself
+and they carry an `X-Swarm-UI` header, so another web page cannot trigger them.
 
 Use `--ui-port <port>` to change the port, or `--no-ui` to turn the endpoint off.
 If the port is busy, the harness prints a message and continues without the UI.

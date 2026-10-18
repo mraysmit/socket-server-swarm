@@ -94,6 +94,46 @@ class UiServerTest {
     }
 
     @Test
+    void actionsStopAndRestartAServerAndReportErrors() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            manager.start("solo", 2);
+            var stop = post(ui, "/api/servers/solo-Server-002/stop", origin(ui), "1");
+            assertEquals(200, stop.statusCode(), stop.body());
+            assertTrue(Json.read(stop.body()).get("ok").asBoolean());
+            var servers = Json.read(get(ui, "/api/snapshot").body()).get("swarms").get(0).get("servers");
+            assertTrue(servers.get(0).get("alive").asBoolean());
+            assertFalse(servers.get(1).get("alive").asBoolean());
+
+            assertEquals(200, post(ui, "/api/servers/solo-Server-002/restart", origin(ui), "1").statusCode());
+            servers = Json.read(get(ui, "/api/snapshot").body()).get("swarms").get(0).get("servers");
+            assertTrue(servers.get(1).get("alive").asBoolean());
+
+            var unknown = post(ui, "/api/servers/solo-Server-009/stop", origin(ui), "1");
+            assertEquals(404, unknown.statusCode());
+            assertFalse(Json.read(unknown.body()).get("ok").asBoolean());
+            assertEquals(409, post(ui, "/api/servers/solo-Server-001/leave", origin(ui), "1").statusCode(),
+                    "Leave needs gossip, which this harness does not run");
+            assertEquals(404, post(ui, "/api/servers/solo-Server-001/explode", origin(ui), "1").statusCode());
+            assertEquals(405, get(ui, "/api/servers/solo-Server-001/stop").statusCode());
+        }
+    }
+
+    @Test
+    void actionsRefuseRequestsThatDoNotComeFromThePageThisServerServed() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            manager.start("solo", 1);
+            String path = "/api/servers/solo-Server-001/stop";
+            assertEquals(403, post(ui, path, null, "1").statusCode(), "No Origin");
+            assertEquals(403, post(ui, path, "https://evil.example", "1").statusCode(), "Foreign Origin");
+            assertEquals(403, post(ui, path, "http://localhost:1", "1").statusCode(), "Another port");
+            assertEquals(403, post(ui, path, origin(ui), null).statusCode(), "Missing custom header");
+            assertTrue(manager.status("solo").getFirst().alive(), "None of the refused requests stopped the server");
+            assertEquals(200, post(ui, path, "http://127.0.0.1:" + ui.port(), "1").statusCode());
+            assertFalse(manager.status("solo").getFirst().alive());
+        }
+    }
+
+    @Test
     void closeReleasesThePort() throws Exception {
         int port;
         try (var manager = new SwarmManager()) {
@@ -131,6 +171,15 @@ class UiServerTest {
 
     private HttpResponse<String> get(UiServer ui, String path) throws Exception {
         return http.send(HttpRequest.newBuilder(uri(ui, path)).GET().build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static String origin(UiServer ui) { return "http://localhost:" + ui.port(); }
+
+    private HttpResponse<String> post(UiServer ui, String path, String origin, String header) throws Exception {
+        var request = HttpRequest.newBuilder(uri(ui, path)).POST(HttpRequest.BodyPublishers.noBody());
+        if (origin != null) { request.header("Origin", origin); }
+        if (header != null) { request.header(UiServer.ACTION_HEADER, header); }
+        return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private static URI uri(UiServer ui, String path) { return URI.create("http://localhost:" + ui.port() + path); }

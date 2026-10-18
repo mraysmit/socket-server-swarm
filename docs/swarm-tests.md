@@ -2,10 +2,12 @@
 
 ## Overview
 
-The suite has 17 test methods (26 cases with parameterized inputs) in two JUnit 5 classes under `dev.mars.swarm`. Both start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 42 test methods (54 cases with parameterized inputs) in four JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
-- **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation and failure handling.
-- **SwarmConsoleTest** covers the `SwarmMain` console, plugin-folder argument parsing, and JVM shutdown-hook cleanup.
+- **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
+- **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
+- **UiServerTest** covers the HTTP endpoint: the snapshot, the page, Host checks, the action endpoints and their cross-site protections, and the UI command-line options.
+- **SwarmGossipTest** covers the generated gossip config and, with the real gossip plugin, convergence, failure detection, graceful leave, restart, swarm isolation, echo traffic, and the console path. The plugin tests skip themselves if the plugin JAR is not built.
 - **junit-platform.properties** sets a 60 s default timeout and runs timed tests on a separate thread, so a hung test fails instead of stalling the build.
 
 ## Test inventory
@@ -36,6 +38,44 @@ The suite has 17 test methods (26 cases with parameterized inputs) in two JUnit 
 | consoleManagesTwoSwarmsSendsCommandsAndShowsTestProgress | A scripted console session runs start, list, status, send, test, stop and stop-all on two swarms. Checks reply format, unique message IDs, `completed=20/20` progress, the PASSED summary, and that beta stays healthy after alpha stops. |
 | invalidCommandsReportErrorsAndConsoleContinues | Bad input (non-numeric count, missing arguments, unknown swarm, out-of-range requests, unknown command, `quit extra`) prints an error and the console keeps running. |
 | eofReturnsAndOwnerClosesSwarms | End of input returns from the console without stopping swarms; closing the manager does. |
+
+### Added later: server operations (in SwarmManagerTest and SwarmConsoleTest)
+
+| Test | What it verifies |
+| --- | --- |
+| stopsAndRestartsOneServerOnItsSamePortsWithoutTouchingItsPeers | A stopped server stays listed with its ports and shows as not alive while its peers stay alive. Restart brings it back on the same ports. Restarting a running server replaces it. |
+| serverOperationsRejectUnknownServersAndLeaveNeedsGossip | Malformed or unknown server IDs throw `IllegalArgumentException`; `leave` without gossip throws `IllegalStateException`; operations after close fail. |
+| failedRestartKeepsTheServerListedAndReportsWhy | A restart that fails reports the reason, the server stays listed, and a later restart works. |
+| serverCommandsStopAndRestartOneServerAndReportMisuse (console) | `server stop`, `server restart`, and error messages for unknown servers, unknown actions and missing arguments. |
+
+### UiServerTest (9 methods)
+
+| Test | What it verifies |
+| --- | --- |
+| snapshotReportsEverySwarmAndServer | The snapshot lists every swarm and server with real ports, `alive`, and null gossip when the plugin is absent. |
+| snapshotShowsAClosedServerAsNotAliveAndEmptyWhenNothingRuns | An empty snapshot with no swarms, and a closed server reported as not alive. |
+| servesThePageAndRejectsOtherPathsAndMethods | The page is served at `/` and `/index.html`; other paths give 404 and POST to the snapshot gives 405. |
+| refusesRequestsWhoseHostIsNotLoopback (4 hosts) | Requests with a foreign `Host` get 403; loopback names are accepted. |
+| actionsStopAndRestartAServerAndReportErrors | `POST /api/servers/<id>/stop` and `/restart` work; unknown server gives 404; `leave` without gossip gives 409; unknown actions give 404; GET gives 405. |
+| actionsRefuseRequestsThatDoNotComeFromThePageThisServerServed | An action is refused (403) with no `Origin`, a foreign `Origin`, another port, or no `X-Swarm-UI` header, and the server is left running. |
+| closeReleasesThePort, aBusyPortIsReportedToTheCaller | The port is freed on close; a busy port throws `IOException`. |
+| parsesUiOptionsWithTheUiOnByDefault | `--ui-port` and `--no-ui` parsing, including invalid ports. |
+
+### SwarmGossipTest (12 methods)
+
+| Test | What it verifies |
+| --- | --- |
+| generatedConfigGivesEachServerItsSwarmAndSeedsPointAtTheFirstServer | Each server gets its swarm ID, servers 2 and up are seeded with the first server's real port, entries are removed on stop, and the file and property are removed on close. |
+| failedStartupForgetsTheSwarmsConfigAndNoGossipMeansNoProperty | A failed start leaves no config behind; without gossip the property is never set. |
+| settingsRejectHarnessOwnedAndBlankValues, parsesGossipOptions | `GossipSettings` and the `--gossip` and `--gossip-fast` options. |
+| serversConvergeAndReportTheirViewsThroughTheSnapshot | Four servers each see all members ALIVE, none is isolated, and the snapshot carries the plugin's status. |
+| swarmsStaySeparateAndUseTheirOwnSwarmId | Each swarm uses its own swarm ID and lists only its own members. |
+| closedServerIsSuspectedByThePeersWhichStayHealthy | A closed server is rated SUSPECT or DEAD by its peers, which keep rating each other ALIVE. |
+| leavingServerIsMarkedLeftByThePeersQuickly | After `leave`, the peers record LEFT and the departure completes. |
+| restartedServerGetsANewBootIdAndRejoinsTheSwarm | A restarted server has a new boot ID, rejoins, and its peers rate the new boot ID ALIVE. |
+| echoTrafficStillWorksWhileTheServersGossip | 300 echo requests succeed while the servers converge. |
+| consoleStartsAGossipSwarmAndSendsAGracefulLeave | A console session starts a gossip swarm, sends a graceful leave to one server, and cleans up its config. |
+| swarmSeededAtAnotherSwarmRejectsItAndKeepsItsOwnMembers | A server seeded at another swarm's server has its exchange turned away, and neither swarm lists the other's members. |
 
 ## Running the tests
 

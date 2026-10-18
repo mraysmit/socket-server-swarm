@@ -31,18 +31,29 @@ import java.util.function.IntConsumer;
 /** Owns named groups of real socket servers, all hosted in the harness JVM. */
 public final class SwarmManager implements AutoCloseable {
     public static final int MAX_SERVERS_PER_SWARM = 100;
+    private static final java.util.regex.Pattern SERVER_ID = java.util.regex.Pattern.compile("(.+)-Server-(\\d{3})");
     private final Map<String, List<ServerInstance>> swarms = new LinkedHashMap<>();
     private final List<Path> pluginDirectories;
     private final ServerFactory factory;
+    private final GossipSettings gossip;
+    private GossipConfigFile gossipFile;
     private boolean closed;
 
     public SwarmManager() { this(List.of()); }
     public SwarmManager(Path pluginsDir) { this(pluginsDir == null ? List.of() : List.of(pluginsDir)); }
     public SwarmManager(List<Path> pluginDirectories) { this(pluginDirectories, ServerInstance::start); }
-    SwarmManager(List<Path> pluginDirectories, ServerFactory factory) {
+    /** With gossip settings, every swarm's servers get a generated gossip config; the plugin directories must hold the plugin. */
+    public SwarmManager(List<Path> pluginDirectories, GossipSettings gossip) {
+        this(pluginDirectories, gossip, ServerInstance::start);
+    }
+    SwarmManager(List<Path> pluginDirectories, ServerFactory factory) { this(pluginDirectories, null, factory); }
+    SwarmManager(List<Path> pluginDirectories, GossipSettings gossip, ServerFactory factory) {
         this.pluginDirectories = List.copyOf(pluginDirectories);
+        this.gossip = gossip;
         this.factory = factory;
     }
+
+    public boolean gossipEnabled() { return gossip != null; }
 
     public synchronized List<ServerEndpoint> start(String name, int count) throws IOException {
         ensureOpen();
@@ -57,15 +68,23 @@ public final class SwarmManager implements AutoCloseable {
         var ordered = new ArrayList<ServerInstance>();
         boolean committed = false;
         try {
+            if (gossip != null) {
+                if (gossipFile == null) { gossipFile = new GossipConfigFile(gossip); }
+                gossipFile.declare(name, count);
+            }
             try (var starters = Executors.newVirtualThreadPerTaskExecutor()) {
                 var futures = new ArrayList<Future<ServerInstance>>();
-                for (int i = 1; i <= count; i++) {
-                    String id = name + "-Server-" + String.format(java.util.Locale.ROOT, "%03d", i);
-                    futures.add(starters.submit(() -> {
-                        var server = factory.start(new ServerOptions(id, 0, 0, pluginDirectories));
-                        opened.add(server);
-                        return server;
-                    }));
+                int next = 1;
+                if (gossip != null) {
+                    // The first server starts alone: the others need its actual port as their seed.
+                    var first = startOne(name, 1, opened);
+                    ordered.add(first);
+                    gossipFile.seedFirstServer(name, count, first.getPort());
+                    next = 2;
+                }
+                for (int i = next; i <= count; i++) {
+                    int index = i;
+                    futures.add(starters.submit(() -> startOne(name, index, opened)));
                 }
                 IOException failure = null;
                 for (var future : futures) {
@@ -89,8 +108,17 @@ public final class SwarmManager implements AutoCloseable {
             try { closeServers(new ArrayList<>(opened)); } catch (IOException cleanup) { e.addSuppressed(cleanup); }
             throw e;
         } finally {
-            if (!committed) { swarms.remove(name); }
+            if (!committed) {
+                swarms.remove(name);
+                if (gossipFile != null) { gossipFile.forget(name); }
+            }
         }
+    }
+
+    private ServerInstance startOne(String swarm, int index, ConcurrentLinkedQueue<ServerInstance> opened) throws IOException {
+        var server = factory.start(new ServerOptions(GossipConfigFile.id(swarm, index), 0, 0, pluginDirectories));
+        opened.add(server);
+        return server;
     }
 
     public synchronized Map<String, List<ServerEndpoint>> list() {
@@ -182,15 +210,73 @@ public final class SwarmManager implements AutoCloseable {
                 (System.nanoTime() - began) / 1_000_000, failures.stream().limit(10).toList());
     }
 
+    /** Closes one server without telling its peers. It stays listed, so it can be restarted. */
+    public synchronized void stopServer(String serverId) throws IOException {
+        ensureOpen();
+        var at = locate(serverId);
+        try { at.servers().get(at.position()).close(); }
+        catch (RuntimeException e) { throw new IOException("Cannot stop " + serverId, e); }
+    }
+
+    /** Starts the server again on the same ports with the same ID; a gossip server comes back with a new boot ID. */
+    public synchronized ServerEndpoint restartServer(String serverId) throws IOException {
+        ensureOpen();
+        var at = locate(serverId);
+        var old = at.servers().get(at.position());
+        int port = old.getPort(), adminPort = old.getAdminPort();
+        try { old.close(); }
+        catch (RuntimeException e) { throw new IOException("Cannot stop " + serverId + " before restarting", e); }
+        ServerInstance fresh;
+        try { fresh = factory.start(new ServerOptions(serverId, port, adminPort, pluginDirectories)); }
+        catch (IOException | RuntimeException e) { throw new IOException("Cannot restart " + serverId + ": " + e.getMessage(), e); }
+        var updated = new ArrayList<>(at.servers());
+        updated.set(at.position(), fresh);
+        swarms.put(at.swarm(), List.copyOf(updated));
+        return new ServerEndpoint(serverId, fresh.getPort(), fresh.getAdminPort());
+    }
+
+    /** Asks the server to publish a graceful departure to its gossip peers; it keeps running afterwards. */
+    public CommandReply leaveServer(String serverId) throws IOException {
+        if (gossip == null) { throw new IllegalStateException("Gossip is not enabled; start the harness with --gossip"); }
+        ServerEndpoint endpoint;
+        synchronized (this) {
+            ensureOpen();
+            var at = locate(serverId);
+            endpoint = endpoints(at.servers()).get(at.position());
+        }
+        var reply = execute(endpoint, "gossip", Map.of("operation", "leave"));
+        if (!"OK".equals(reply.status())) {
+            throw new IOException("Leave rejected: " + (reply.error() == null ? reply.status() : reply.error().message()));
+        }
+        return reply;
+    }
+
+    private record Located(String swarm, List<ServerInstance> servers, int position) { }
+
+    private Located locate(String serverId) {
+        var matcher = SERVER_ID.matcher(serverId == null ? "" : serverId);
+        if (matcher.matches()) {
+            var servers = swarms.get(matcher.group(1));
+            int position = Integer.parseInt(matcher.group(2)) - 1;
+            if (servers != null && position >= 0 && position < servers.size()
+                    && servers.get(position).getServerId().equals(serverId)) {
+                return new Located(matcher.group(1), servers, position);
+            }
+        }
+        throw new IllegalArgumentException("Unknown server: " + serverId);
+    }
+
     public synchronized void stop(String name) throws IOException {
         ensureOpen();
         var servers = swarms.remove(name);
         if (servers == null) { throw new IllegalArgumentException("Unknown swarm: " + name); }
+        if (gossipFile != null) { gossipFile.forget(name); }
         closeServers(servers);
     }
 
     public synchronized void stopAll() throws IOException {
         var servers = swarms.values().stream().flatMap(List::stream).toList();
+        if (gossipFile != null) { swarms.keySet().forEach(gossipFile::forget); }
         swarms.clear();
         closeServers(servers);
     }
@@ -198,7 +284,10 @@ public final class SwarmManager implements AutoCloseable {
     @Override public synchronized void close() throws IOException {
         if (!closed) {
             closed = true;
-            stopAll();
+            try { stopAll(); }
+            finally {
+                if (gossipFile != null) { gossipFile.close(); }
+            }
         }
     }
 

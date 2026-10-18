@@ -68,23 +68,29 @@ This is a draft for discussion, not a fixed contract.
 }
 ```
 
-`gossip` is null for a server that is down, not answering, or running without the plugin. As built, `gossip` holds the plugin's own `status` and `members` replies unchanged, as `{"status": ..., "members": ...}`, because their exact field names are not confirmed. The `bootId`, `workerState` and similar fields above are therefore a target shape that the page will have to map from the plugin's replies. Each server is probed in parallel with a 6-second limit; a server that does not answer in time is reported as not alive.
+`gossip` is null for a server that is down, not answering, or running without the plugin. As built, `gossip` holds the plugin's own `status` and `members` replies unchanged, as `{"status": ..., "members": ...}`, and the page maps them. The sketch above is simplified; the real field names, read from the plugin source, are:
+
+- `status`: `self` (`serverId`, `bootId`, `host`, `port`, `heartbeat`, `state`, `metadata`), `workerState`, `isolated`, `departure.state`, `exchanges` (`inbound`, `outbound`, `outboundFailures`, `rejected`, `inflight`), and `runtime.rounds`.
+- `members`: `self`, `members` (each row has the owner fields plus `assessment`, `advanceAgeMillis`, `directSuccessAgeMillis`, `endpointVerified`, `identityConflict`), `nextCursor`, and `capacity`. `assessment` is one of `CANDIDATE`, `ALIVE`, `SUSPECT`, `DEAD`, `LEFT`.
+- Only the first page of 32 members is requested. The page notes when `nextCursor` shows there are more. Each server is probed in parallel with a 6-second limit; a server that does not answer in time is reported as not alive.
 
 ## Known gaps
 
-1. **Gossip is not wired in yet.** The seed-port work in [swarm-tests-plan.md](swarm-tests-plan.md) must come first. Without it, `members` returns nothing useful.
+1. **Gossip needs a flag.** It is off unless `--gossip` or `--gossip-fast` is given with a `--plugins-dir` that holds the plugin. The seed-port problem from [swarm-tests-plan.md](swarm-tests-plan.md) is solved by starting each swarm's first server alone.
 2. **Exchange dots cannot be exact.** The plugin exposes counters (exchanges received, failed outbound), not individual exchanges. The UI could infer dots from counter changes, but they would be approximate. Exact dots need an event hook in the gossip plugin.
-3. **Per-server actions do not exist.** `SwarmManager` can only stop a whole swarm. Stopping, leaving or restarting a single server needs new harness methods. Partition needs a TCP relay between nodes. The first version should be read-only.
+3. **Partition does not exist.** Per-server stop, leave and restart are built (see the build order). Partition would need a TCP relay between nodes, so the page has no partition control in live mode.
 4. **Polling cost.** Querying every server each second is fine for a few servers. For swarms up to 100 servers, query in parallel with a short timeout and cache the last snapshot.
 5. **Page changes.** The mockup assumes the simulator owns time and state. Switching to real data means replacing its model with the snapshot, and deciding whether the simulator stays as a fallback.
 
 ## Build order
 
-1. Wire the gossip config into the harness (see the test plan). Not started.
-2. Add a read-only `/api/snapshot` and serve the page from the same server. **Done**: `UiServer`, `SwarmSnapshot`, and the `--ui-port` and `--no-ui` options, covered by `UiServerTest`. The page served is still the simulator, so step 3 is next. Until step 1, `gossip` is always null.
-3. Make the page use the endpoint when it exists, and keep the simulator as a fallback.
-4. Add a harness event log and the SSE feed.
-5. Add per-server actions last.
+1. Wire the gossip config into the harness (see the test plan). **Done**: `--gossip` and `--gossip-fast`, implemented by `GossipSettings` and `GossipConfigFile` (the first server of a swarm starts alone and the rest are seeded with its port). Checked with real servers in `SwarmGossipTest` and by running the harness with the live page.
+2. Add a read-only `/api/snapshot` and serve the page from the same server. **Done**: `UiServer`, `SwarmSnapshot`, and the `--ui-port` and `--no-ui` options, covered by `UiServerTest`. The page served is still the simulator, so step 3 is next. `gossip` is null unless the harness runs with `--gossip` or `--gossip-fast`.
+3. Make the page use the endpoint when it exists, and keep the simulator as a fallback. **Done**: on load the page requests `/api/snapshot`; if that answers, it runs in live mode and polls every second, otherwise (opened as a file, or served elsewhere) it runs the simulator. In live mode the simulation controls and the flying exchange dots are hidden, and the event log is built by comparing consecutive snapshots. Leave, Stop and Restart call the action endpoints (step 5). Checked in headless Chrome against the real harness (no gossip plugin) and against a stand-in server returning data shaped like the plugin's replies; it has not been run against a real gossip swarm.
+4. Add a harness event log and the SSE feed. **Not built, on purpose.** The page already derives its log by comparing snapshots, which covers starts, stops, departures and rating changes. A server-side feed would add little, and it would have needed the event history that was ruled out.
+5. Add per-server actions last. **Done**: `SwarmManager.stopServer`, `restartServer` and `leaveServer`, the console command `server <stop|leave|restart> <id>`, and `POST /api/servers/<id>/<stop|leave|restart>` behind the Leave, Stop and Restart buttons. A restarted server keeps its ports and gets a new boot ID. Checked in headless Chrome by clicking Stop and Restart against a live gossip swarm.
+
+The action endpoints change state, so they refuse any request whose `Origin` is not this server or that lacks the `X-Swarm-UI` header. A web page on another site cannot send that header without a preflight, which the server never answers.
 
 ## Tests
 

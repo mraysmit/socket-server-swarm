@@ -17,16 +17,18 @@ public final class SwarmMain {
               status [name]                    Check admin status of one or all swarms
               send <name> <text or JSON>        Send a command to every server in a swarm
               test <name> [requests] [clients]  Verify echo replies (defaults: 1000 requests, 100 clients)
+              server <stop|leave|restart> <id>  Stop, gracefully leave (gossip) or restart one server by ID
               stop <name>                      Stop one swarm
               stop-all                         Stop every swarm
               help                             Show these commands
               quit                             Stop every swarm and exit
             """;
 
-    static final String USAGE = "Usage: SwarmMain [--plugins-dir <directory>]... [--ui-port <port>] [--no-ui]";
+    static final String USAGE = "Usage: SwarmMain [--plugins-dir <directory>]... [--gossip | --gossip-fast]"
+            + " [--ui-port <port>] [--no-ui]";
 
-    /** Command-line settings; the UI is on by default at {@link UiServer#DEFAULT_PORT}. */
-    record Options(java.util.List<Path> pluginDirectories, boolean uiEnabled, int uiPort) { }
+    /** Command-line settings; the UI is on by default at {@link UiServer#DEFAULT_PORT}. Gossip is off unless asked for. */
+    record Options(java.util.List<Path> pluginDirectories, boolean uiEnabled, int uiPort, GossipSettings gossip) { }
 
     public static void main(String[] args) throws IOException {
         if (args.length == 1 && args[0].equals("--help")) {
@@ -35,7 +37,8 @@ public final class SwarmMain {
             return;
         }
         var options = parseOptions(args);
-        var manager = new SwarmManager(options.pluginDirectories());
+        var manager = options.gossip() == null ? new SwarmManager(options.pluginDirectories())
+                : new SwarmManager(options.pluginDirectories(), options.gossip());
         var shutdown = shutdownHook(manager);
         Runtime.getRuntime().addShutdownHook(shutdown);
         try (manager;
@@ -76,15 +79,23 @@ public final class SwarmMain {
         var folders = new java.util.ArrayList<Path>();
         boolean ui = true;
         int port = UiServer.DEFAULT_PORT;
+        GossipSettings gossip = null;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--no-ui" -> ui = false;
+                case "--gossip", "--gossip-fast" -> {
+                    if (gossip != null) { throw new IllegalArgumentException(USAGE); }
+                    gossip = args[i].equals("--gossip") ? GossipSettings.defaults() : GossipSettings.fast();
+                }
                 case "--ui-port" -> port = uiPort(value(args, i++));
                 case "--plugins-dir" -> folders.add(Path.of(value(args, i++)));
                 default -> throw new IllegalArgumentException(USAGE);
             }
         }
-        return new Options(java.util.List.copyOf(folders), ui, port);
+        if (gossip != null && folders.isEmpty()) {
+            throw new IllegalArgumentException("--gossip needs --plugins-dir pointing at the gossip plugin");
+        }
+        return new Options(java.util.List.copyOf(folders), ui, port, gossip);
     }
 
     private static String value(String[] args, int option) {
@@ -104,6 +115,7 @@ public final class SwarmMain {
 
     static void runConsole(SwarmManager manager, BufferedReader input, PrintWriter output) throws IOException {
         output.println("Socket Server Swarm | Java 27 | multiple instances in one JVM");
+        output.println(manager.gossipEnabled() ? "Gossip plugin configuration is generated for every swarm" : "Gossip is off (--gossip enables it)");
         output.print(HELP);
         while (true) {
             output.print("swarm> "); output.flush();
@@ -156,6 +168,15 @@ public final class SwarmMain {
                         output.println(result);
                         result.failures().forEach(output::println);
                     }
+                    case "server" -> {
+                        require(words, 3, "server <stop|leave|restart> <id>");
+                        switch (words[1].toLowerCase(Locale.ROOT)) {
+                            case "stop" -> { manager.stopServer(words[2]); output.println("Server stopped | serverId=" + words[2]); }
+                            case "leave" -> { manager.leaveServer(words[2]); output.println("Server left | serverId=" + words[2]); }
+                            case "restart" -> output.println("Server restarted | " + manager.restartServer(words[2]));
+                            default -> throw new IllegalArgumentException("Usage: server <stop|leave|restart> <id>");
+                        }
+                    }
                     case "stop" -> {
                         require(words, 2, "stop <name>");
                         manager.stop(words[1]);
@@ -168,7 +189,7 @@ public final class SwarmMain {
                     case "quit" -> { require(words, 1, "quit"); return; }
                     default -> output.println("Unknown command; enter help");
                 }
-            } catch (IOException | IllegalArgumentException e) {
+            } catch (IOException | IllegalArgumentException | IllegalStateException e) {
                 output.println("Error: " + e.getMessage());
             }
         }
