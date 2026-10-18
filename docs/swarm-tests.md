@@ -2,7 +2,7 @@
 
 ## Overview
 
-The suite has 59 test methods (71 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 62 test methods (74 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
@@ -50,7 +50,7 @@ The suite has 59 test methods (71 cases with parameterized inputs) in six JUnit 
 | failedRestartKeepsTheServerListedAndReportsWhy | A restart that fails reports the reason, the server stays listed, and a later restart works. |
 | serverCommandsStopAndRestartOneServerAndReportMisuse (console) | `server stop`, `server restart`, and error messages for unknown servers, unknown actions and missing arguments. |
 
-### ConnectionPoolTest (6 methods)
+### ConnectionPoolTest (9 methods)
 
 | Test | What it verifies |
 | --- | --- |
@@ -59,7 +59,10 @@ The suite has 59 test methods (71 cases with parameterized inputs) in six JUnit 
 | aRestartedServerIsReachedAgainBecauseAStaleConnectionIsRetriedOnANewOne | After a server restart, the next command succeeds over a new connection. |
 | aStoppedServerIsReportedAsAFailureNotRetriedForever | A command to a stopped server fails promptly. |
 | concurrentCommandsEachGetTheirOwnConnectionAndTheirOwnReply | 20 callers sending 300 commands each get their own reply, with far fewer connections than requests. |
-| theServerSnapshotOfAGossipFreeSwarmStillWorksOverThePool | The snapshot of a swarm without gossip still works over pooled connections. |
+| theServerSnapshotOfAGossipFreeSwarmStillWorksOverThePool | The snapshot of a swarm without gossip works over pooled connections: polling three servers three times opens three connections, and the plugin check is asked once per server, not on every poll. |
+| aLoadTestKeepsItsConnectionsOpenInsteadOfOpeningOnePerRequest | 600 load-test requests from 10 callers use at most 60 connections, and every request is counted by the servers. |
+| aServerThatRejectsTheKeepAliveFieldIsServedOneRequestPerConnectionFromThenOn | A fake older server that rejects the keep-alive field: the first request is sent again without it and succeeds, later requests do not retry, and each uses its own connection. |
+| closingThePoolResetsIdleConnectionsSoTheLoadTestLeavesNothingInTimeWait | Closing the pool drops its connections, a new pool opens fresh ones, and an invalid size is rejected. |
 
 ### SocketActivityTest (6 methods)
 
