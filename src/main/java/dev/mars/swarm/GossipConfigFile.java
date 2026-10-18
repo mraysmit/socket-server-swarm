@@ -19,11 +19,8 @@ final class GossipConfigFile implements AutoCloseable {
     private final Properties entries = new Properties();
     private boolean closed;
 
-    private final java.util.Map<String, String> userOptions;
-
     GossipConfigFile(GossipSettings settings) throws IOException {
         advertiseHost = settings.advertiseHost();
-        userOptions = settings.options();
         entries.setProperty("advertise.host", advertiseHost);
         settings.options().forEach(entries::setProperty);
         file = Files.createTempFile("swarm-gossip-", ".properties");
@@ -31,23 +28,9 @@ final class GossipConfigFile implements AutoCloseable {
         System.setProperty(PROPERTY, file.toString());
     }
 
-    /** Past this size the plugin's default exchange of 32 members cannot carry a whole swarm in one go. */
-    static final int DEFAULT_BATCH_MEMBERS = 32;
-
-    /**
-     * Declares every server of a swarm before any starts, so each knows its swarm ID. A swarm larger than the plugin's default
-     * exchange size gets a bigger exchange (up to 128 members in 64 KiB), which cuts the rounds needed to converge from
-     * dozens to a handful; a value the caller set explicitly always wins.
-     */
+    /** Declares every server of a swarm before any starts, so each knows its swarm ID. */
     synchronized void declare(String swarm, int count) throws IOException {
-        for (int i = 1; i <= count; i++) {
-            String prefix = prefix(swarm, i);
-            entries.setProperty(prefix + "swarm.id", swarm);
-            if (count > DEFAULT_BATCH_MEMBERS) {
-                if (!userOptions.containsKey("max.batch.members")) { entries.setProperty(prefix + "max.batch.members", Integer.toString(Math.min(count, 128))); }
-                if (!userOptions.containsKey("max.exchange.bytes")) { entries.setProperty(prefix + "max.exchange.bytes", "65536"); }
-            }
-        }
+        for (int i = 1; i <= count; i++) { entries.setProperty(prefix(swarm, i) + "swarm.id", swarm); }
         write();
     }
 

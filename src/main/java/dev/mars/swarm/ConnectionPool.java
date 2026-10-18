@@ -163,9 +163,13 @@ final class ConnectionPool implements AutoCloseable {
     synchronized long opened() { return opened; }
     synchronized long reused() { return reused; }
 
+    /** Idle connections carry nothing, so they are reset rather than closed with a handshake that would park their ports in TIME_WAIT. */
     @Override public synchronized void close() {
         closed = true;
-        idle.values().forEach(queue -> queue.forEach(Connection::close));
+        idle.values().forEach(queue -> queue.forEach(connection -> {
+            try { connection.socket.setSoLinger(true, 0); } catch (IOException cannotReset) { /* an ordinary close then */ }
+            connection.close();
+        }));
         idle.clear();
     }
 }

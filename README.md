@@ -140,33 +140,41 @@ side panels and a dock underneath it, and is built for swarms of up to 100 serve
 - **Layout:** up to 12 servers per swarm sit on a ring; larger swarms are packed on a spiral so
   100 servers fit in a compact disc.
 
-**Testing with 100 servers: read this first (Windows).** The gossip plugin opens a new TCP
-connection for every exchange, and each closed connection stays in TIME_WAIT for two minutes.
-Windows has only 16,384 dynamic ports by default, so a sustained rate above roughly 130 new
-connections per second runs the machine out of ports. New connections then fail
-(`Address already in use`) for every program, not just this harness. Measured here: 100 servers at
-the plugin's default 1-second rounds added about 200 TIME_WAIT sockets per second (6,000 in 30
-seconds), and at `--gossip-fast` (200 ms rounds) the count reached 54,000 and connections to the
-page itself failed. Other gossip swarms already running count too: a 5-server swarm at
-`--gossip-fast` holds about 8,000 TIME_WAIT sockets on its own. The harness helps in two ways: for gossip swarms the snapshot makes one connection per
-server per poll (not three), and the page polls every 3 seconds instead of every second once
-there are more than 32 servers. For a swarm of 100, also slow the gossip itself. The value below is
-an estimate from the connection budget, not something I have run at 100 servers on this machine,
-so keep the TIME_WAIT check below running the first time:
+**Testing with 100 servers (Windows).** Gossip used to open a new TCP connection for every exchange,
+and each closed connection sits in TIME_WAIT for two minutes. Windows has 16,384 dynamic ports by
+default, so more than roughly 130 new connections a second ran the machine out of ports (new
+connections then fail with `Address already in use` for every program, not just this one). That
+design was the problem, not the platform, and it is fixed in the server project: a request can now ask
+the server to keep the connection open, and the gossip plugin and this harness reuse connections
+instead of opening one each time (see `docs/GOSSIP_PLUGIN.md` and the README in
+`socket-server-threadpool`). The page's Conn column shows it: `#9184·15` is the 15th request on
+connection 9184.
 
-```powershell
-mvn compile exec:java "-Dexec.args=--gossip --gossip-option round.millis=3000 --plugins-dir ../socket-server-threadpool/plugins/gossip-plugin/target"
-```
+Measured on this machine with 100 servers at the plugin's default 1-second rounds:
 
-Watch the count with `netstat -an | find /c "TIME_WAIT"`; if it passes about 12,000, stop the
-harness and wait for it to fall. Raising the dynamic port range (`netsh int ipv4 set dynamicport
-tcp start=10000 num=55535`, run as administrator) also helps. Any `key=value` the plugin accepts can
-be set with `--gossip-option` (it needs `--gossip` or `--gossip-fast`).
+| Build | New TIME_WAIT sockets |
+| --- | --- |
+| One connection per exchange (before) | about 200 a second, and about 54,000 at `--gossip-fast`; stopped by a watchdog |
+| Connections reused, idle limit 20 s (plugin) and 30 s (server) | about 100 a second; stopped by the watchdog |
+| Connections reused, idle limit 4 min and 5 min (now) | about 5 a second, flat; the run completed |
 
-For a swarm over 32 servers the harness also raises each server's exchange size to the swarm size
-(at most 128 members, 64 KiB) so a single exchange can carry the whole membership. Without that,
-the default of 32 members per exchange makes a 100-server swarm take many minutes to converge.
-A value you set yourself with `--gossip-option max.batch.members=...` always wins.
+The idle limit matters. A server contacts only about two peers a second, so in a swarm of 100 it meets a
+given peer about once a minute, and a connection idle for 20 seconds is closed before it is used again. In
+the completed run the 100 servers settled into a full mesh of about 10,000 open connections (netstat lists
+each loopback connection twice, so about 20,000 ESTABLISHED lines), TIME_WAIT stayed at the baseline, and
+the swarm was 92 to 94% in sync after four minutes. Convergence is slow by design: the plugin only rates a
+peer ALIVE after a direct exchange with it, so it takes roughly (servers × ln servers) ÷ (exchanges per
+second per server) seconds, and a larger exchange does not speed it up. I have not run 100 servers at
+`--gossip-fast` since the fix.
+
+Other gossip swarms on the same machine count against the same port budget: a 5-server swarm on the older,
+non-pooling build held about 6,000 TIME_WAIT sockets by itself. To watch the sockets, use
+`netstat -an | find /c "TIME_WAIT"` and `netstat -an | find /c "ESTABLISHED"`. The harness also helps: for
+gossip swarms the snapshot makes one pooled connection per server, and the page polls every 3 seconds
+instead of every second once there are more than 32 servers. Any `key=value` the plugin accepts can be set
+with `--gossip-option` (it needs `--gossip` or `--gossip-fast`), for example
+`--gossip-option round.millis=2000`. All servers in a swarm must run the new server build, because an older
+one rejects the keep-alive field.
 
 Gossip returns at most 32 members per page. For a swarm larger than that, a server's "sees live
 peers" figure comes from the plugin's own count of ALIVE members, and the selected server's
