@@ -162,7 +162,9 @@ The idle limit matters. A server contacts only about two peers a second, so in a
 given peer about once a minute, and a connection idle for 20 seconds is closed before it is used again. In
 the completed run the 100 servers settled into a full mesh of about 10,000 open connections (netstat lists
 each loopback connection twice, so about 20,000 ESTABLISHED lines), TIME_WAIT stayed at the baseline, and
-the swarm was 92 to 94% in sync after four minutes. Convergence is slow by design: the plugin only rates a
+the swarm was 92 to 94% in sync after four minutes. Quitting the harness then took about three seconds
+and added no TIME_WAIT sockets, because idle connections are closed with a reset instead of a closing
+handshake (nothing is in flight on them, so nothing is lost). Convergence is slow by design: the plugin only rates a
 peer ALIVE after a direct exchange with it, so it takes roughly (servers × ln servers) ÷ (exchanges per
 second per server) seconds, and a larger exchange does not speed it up. I have not run 100 servers at
 `--gossip-fast` since the fix.

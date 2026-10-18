@@ -2,12 +2,13 @@
 
 ## Overview
 
-The suite has 54 test methods (66 cases with parameterized inputs) in five JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 59 test methods (71 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
 - **UiServerTest** covers the HTTP endpoint: the snapshot, the page, Host checks, the action endpoints and their cross-site protections, the activity endpoint, and the UI command-line options.
 - **SocketActivityTest** covers the recorder that turns the servers' log lines into per-server socket activity.
+- **ConnectionPoolTest** covers the harness's pool of kept-open connections to the servers.
 - **SwarmGossipTest** covers the generated gossip config and, with the real gossip plugin, convergence, failure detection, graceful leave, restart, swarm isolation, echo traffic, and the console path. The plugin tests skip themselves if the plugin JAR is not built.
 - **junit-platform.properties** sets a 60 s default timeout and runs timed tests on a separate thread, so a hung test fails instead of stalling the build.
 
@@ -49,6 +50,17 @@ The suite has 54 test methods (66 cases with parameterized inputs) in five JUnit
 | failedRestartKeepsTheServerListedAndReportsWhy | A restart that fails reports the reason, the server stays listed, and a later restart works. |
 | serverCommandsStopAndRestartOneServerAndReportMisuse (console) | `server stop`, `server restart`, and error messages for unknown servers, unknown actions and missing arguments. |
 
+### ConnectionPoolTest (6 methods)
+
+| Test | What it verifies |
+| --- | --- |
+| successiveCommandsToOneServerShareAConnection | Ten commands to one server use one connection (the server logs one connection and ten requests). |
+| anErrorReplyIsReturnedAsAValueAndTheConnectionStaysUsable | An error reply is returned, not thrown, and costs no connection. |
+| aRestartedServerIsReachedAgainBecauseAStaleConnectionIsRetriedOnANewOne | After a server restart, the next command succeeds over a new connection. |
+| aStoppedServerIsReportedAsAFailureNotRetriedForever | A command to a stopped server fails promptly. |
+| concurrentCommandsEachGetTheirOwnConnectionAndTheirOwnReply | 20 callers sending 300 commands each get their own reply, with far fewer connections than requests. |
+| theServerSnapshotOfAGossipFreeSwarmStillWorksOverThePool | The snapshot of a swarm without gossip still works over pooled connections. |
+
 ### SocketActivityTest (6 methods)
 
 | Test | What it verifies |
@@ -75,14 +87,13 @@ The suite has 54 test methods (66 cases with parameterized inputs) in five JUnit
 | closeReleasesThePort, aBusyPortIsReportedToTheCaller | The port is freed on close; a busy port throws `IOException`. |
 | parsesUiOptionsWithTheUiOnByDefault | `--ui-port` and `--no-ui` parsing, including invalid ports. |
 
-### SwarmGossipTest (15 methods)
+### SwarmGossipTest (14 methods)
 
 | Test | What it verifies |
 | --- | --- |
 | generatedConfigGivesEachServerItsSwarmAndSeedsPointAtTheFirstServer | Each server gets its swarm ID, servers 2 and up are seeded with the first server's real port, entries are removed on stop, and the file and property are removed on close. |
 | failedStartupForgetsTheSwarmsConfigAndNoGossipMeansNoProperty | A failed start leaves no config behind; without gossip the property is never set. |
 | settingsRejectHarnessOwnedAndBlankValues, parsesGossipOptions | `GossipSettings` and the `--gossip` and `--gossip-fast` options. |
-| swarmsLargerThanOneExchangeGetABiggerExchangeUnlessTheCallerSetsOne | A swarm of 32 keeps the plugin's default exchange; a swarm of 40 gets `max.batch.members=40` and `max.exchange.bytes=65536` per server; values the caller sets are not overridden. |
 | gossipOptionsAreMergedOverThePresetAndNeedGossip | `--gossip-option` values override the preset, and bad forms or reserved keys are rejected. |
 | serversConvergeAndReportTheirViewsThroughTheSnapshot | Four servers each see all members ALIVE, none is isolated, and the snapshot carries the plugin's status. |
 | swarmsStaySeparateAndUseTheirOwnSwarmId | Each swarm uses its own swarm ID and lists only its own members. |
@@ -96,7 +107,7 @@ The suite has 54 test methods (66 cases with parameterized inputs) in five JUnit
 
 ## Running the tests
 
-The gossip tests open many short TCP connections (the 40-server test alone leaves about 10,000 sockets in TIME_WAIT for two minutes). On Windows, avoid running the suite while another large gossip swarm is running, or the machine can run out of dynamic ports; see the 100-server note in the README.
+The gossip tests start dozens of real servers. Since connections are kept open between exchanges, the whole harness suite adds about 3,000 sockets in TIME_WAIT (it used to add about 10,000). On Windows, avoid running the suite while another large gossip swarm is running on the older, non-pooling build, because that build can leave the machine short of dynamic ports; see the 100-server note in the README.
 
 The project is built with Maven, compiles for Java 27, and uses JUnit Jupiter.
 
