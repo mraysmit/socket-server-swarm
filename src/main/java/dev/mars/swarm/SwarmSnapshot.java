@@ -89,8 +89,15 @@ final class SwarmSnapshot {
             var status = manager.statusOf(endpoint);
             return server(endpoint, status.alive(), status.detail(), null);
         }
-        var status = manager.statusOf(endpoint);
-        return server(endpoint, status.alive(), status.detail(), status.alive() ? gossip(manager, endpoint, withMembers) : null);
+        // Without gossip, a pooled echo shows that the main port answers. Unlike the admin-port probe it opens no
+        // connection of its own, so polling a hundred servers does not add a hundred TIME_WAIT sockets a poll.
+        try {
+            var ping = manager.execute(endpoint, "echo", Map.of("text", "ping"));
+            boolean alive = "OK".equals(ping.status());
+            return server(endpoint, alive, alive ? "Answers echo" : "Echo failed", alive ? gossip(manager, endpoint, withMembers) : null);
+        } catch (IOException unreachable) {
+            return server(endpoint, false, String.valueOf(unreachable.getMessage()), null);
+        }
     }
 
     private static Map<String, Object> result(Future<Map<String, Object>> future, ServerEndpoint endpoint) {
@@ -120,9 +127,14 @@ final class SwarmSnapshot {
 
     /** The plugin's own replies, passed through unchanged; null when the plugin is absent or does not answer. */
     private static Map<String, Object> gossip(SwarmManager manager, ServerEndpoint endpoint, boolean withMembers) {
+        // A server without the plugin is asked once, not on every poll: each ask would also appear as an error in its activity feed.
+        if (manager.knownWithoutGossip(endpoint.port())) { return null; }
         try {
             var status = manager.execute(endpoint, "gossip", Map.of("operation", "status"));
-            if (!"OK".equals(status.status())) { return null; }
+            if (!"OK".equals(status.status())) {
+                if (status.error() != null && status.error().code().name().equals("UNKNOWN_INSTRUCTION")) { manager.markWithoutGossip(endpoint.port()); }
+                return null;
+            }
             var gossip = new LinkedHashMap<String, Object>();
             gossip.put("status", status.result());
             if (withMembers) {

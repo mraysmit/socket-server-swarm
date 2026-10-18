@@ -31,7 +31,7 @@ The suite has 59 test methods (71 cases with parameterized inputs) in six JUnit 
 | rejectsInvalidServerCounts (-1, 0, 101) | Server counts outside 1 to 100 are rejected. |
 | validatesLoadSettingsAndCloseIsIdempotent | Requests outside 1 to 100000 and clients outside 1 to 1000 are rejected; `close()` can be called twice and releases ports; starting after close throws `IllegalStateException`. |
 
-### SwarmConsoleTest (5 methods, 30 s timeout)
+### SwarmConsoleTest (6 methods, 30 s timeout)
 
 | Test | What it verifies |
 | --- | --- |

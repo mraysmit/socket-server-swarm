@@ -312,7 +312,7 @@ let LIVE=false,lastOk=0,pollFailures=0,seenSwarms=new Set(),actionBusy=false,act
 /* Camera: world coordinates are drawn through translate(tx ty) scale(k). Until the user moves it, the view refits as servers come and go. */
 const view={k:1,tx:0,ty:0},MINK=0.04,MAXK=8;
 let userView=false,focusMode=false,worldBox={x:0,y:0,w:1000,h:640},dockTab='activity',dockOpen=true,fitDone=false;
-const announced=new Set(),convState={};
+const announced=new Set(),convState={},bigState=new Map();
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const hex=()=>Math.random().toString(16).slice(2,10).padEnd(8,'0');
@@ -445,6 +445,22 @@ function checkConverged(announce){
   }
 }
 
+/* A swarm over 32 servers comes without each server's member list, so the log cannot name who rates whom. It uses each
+   server's own count of SUSPECT, DEAD and LEFT members instead, and reports when servers begin or stop rating anyone so.
+   The first reading of a swarm is recorded silently, so a page opened on an already troubled swarm logs nothing. */
+function watchBigSwarms(){
+  for(const s of swarms()){
+    const big=nodes.filter(n=>n.swarm===s&&n.omitted&&n.counts);
+    if(!big.length)continue;
+    for(const state of['SUSPECT','DEAD','LEFT']){
+      const key=s+'|'+state,now=big.filter(n=>Number(n.counts[state])>0).length,before=bigState.get(key);
+      bigState.set(key,now);
+      if(before===undefined)continue;
+      if(before===0&&now>0)ev(state==='LEFT'?'left':state.toLowerCase(),`${s}: ${now} of ${big.length} servers now rate at least one member ${state}`);
+      else if(before>0&&now===0)ev('recovered',`${s}: no server rates a member ${state} any more`);
+    }
+  }
+}
 /* live mode: fold one /api/snapshot into the same model the simulator uses */
 function liveNode(id,swarm){
   const m=/-Server-(\d+)$/.exec(id);
@@ -474,6 +490,8 @@ function applyGossip(o,g,announce){
   /* A page holds at most 32 members. For a bigger swarm the page is cut short and the selected server's full list is
      fetched separately; the plugin's own ALIVE count stands in for every other server. */
   o.pageTruncated=!!page.nextCursor||!!g.membersOmitted;
+  o.omitted=!!g.membersOmitted;
+  o.counts=st.assessments||null;
   o.aliveCount=st.assessments&&st.assessments.ALIVE!==undefined?Number(st.assessments.ALIVE):undefined;
   const fresh=o.pageTruncated&&o.fullAt&&T-o.fullAt<4000;
   if(!fresh)setView(o,self,page.members||[]);
@@ -515,6 +533,7 @@ function applySnapshot(snap,first){
   nodes=nodes.filter(o=>present.has(o.id));
   if(!sel||!nodes.includes(sel))sel=nodes[0]||null;
   for(const o of nodes)if(o.gossip)watch(o);
+  watchBigSwarms();
   checkConverged(announce);
 }
 

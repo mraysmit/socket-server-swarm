@@ -150,6 +150,12 @@ public final class SwarmManager implements AutoCloseable {
 
     ConnectionPool connections() { return connections; }
 
+    /** Ports of servers that answered the gossip check with "unknown instruction", so the plugin is not loaded there. */
+    private final java.util.Set<Integer> withoutGossip = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    boolean knownWithoutGossip(int port) { return withoutGossip.contains(port); }
+    void markWithoutGossip(int port) { withoutGossip.add(port); }
+
     public List<CommandReply> send(String name, String input) throws IOException {
         var replies = new ArrayList<CommandReply>();
         for (var endpoint : snapshot(name)) {
@@ -168,7 +174,8 @@ public final class SwarmManager implements AutoCloseable {
         var completed = new AtomicInteger();
         var failures = new ConcurrentLinkedQueue<String>();
         long began = System.nanoTime();
-        try (var workers = Executors.newVirtualThreadPerTaskExecutor()) {
+        // One kept-open connection per caller, not one per request: 100,000 requests must not leave 100,000 sockets in TIME_WAIT.
+        try (var pool = new ConnectionPool(concurrency); var workers = Executors.newVirtualThreadPerTaskExecutor()) {
             var tasks = new ArrayList<Future<?>>();
             for (int i = 0; i < requests; i++) {
                 int index = i;
@@ -178,9 +185,8 @@ public final class SwarmManager implements AutoCloseable {
                         permits.acquire();
                         acquired = true;
                         var target = targets.get(index % targets.size());
-                        UUID id = UUID.randomUUID();
                         String message = "swarm request " + index;
-                        var reply = client(target).execute(id, "echo", Map.of("text", message));
+                        var reply = pool.execute(target, "echo", Map.of("text", message));
                         if (!("Received: " + message).equals(reply.result())) {
                             throw new IOException("Unexpected result from " + target.serverId() + ": " + reply.result());
                         }

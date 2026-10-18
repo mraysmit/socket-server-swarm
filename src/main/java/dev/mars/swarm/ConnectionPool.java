@@ -15,20 +15,23 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Keeps connections to the managed servers open between requests, using the command protocol's
  * {@code "connection":"keep-alive"}. The harness polls every server several times a minute, and a new connection for
- * each poll would leave thousands of sockets in TIME_WAIT on a large swarm.
+ * each poll would leave thousands of sockets in TIME_WAIT on a large swarm. A server that does not know the field (an
+ * older build) is detected from its reply and served one request per connection from then on.
  */
 final class ConnectionPool implements AutoCloseable {
-    /** Shorter than the server's 30 second idle limit, so a pooled connection is normally still open. */
-    private static final long IDLE_LIMIT_NANOS = TimeUnit.SECONDS.toNanos(20);
-    private static final int MAX_IDLE_PER_SERVER = 4;
+    /** Shorter than the server's 5 minute idle limit, so a pooled connection is normally still open. */
+    private static final long IDLE_LIMIT_NANOS = TimeUnit.MINUTES.toNanos(4);
+    static final int DEFAULT_MAX_IDLE_PER_SERVER = 4;
     /** The server closes a kept-open connection after 1,000 requests. */
     private static final int MAX_USES = 900;
     private static final int CONNECT_TIMEOUT_MILLIS = 5000;
@@ -50,6 +53,12 @@ final class ConnectionPool implements AutoCloseable {
         void close() {
             try { socket.close(); } catch (IOException alreadyClosed) { /* nothing more to release */ }
         }
+
+        /** An idle connection carries nothing, so it is reset; a closing handshake would park its port in TIME_WAIT. */
+        void reset() {
+            try { socket.setSoLinger(true, 0); } catch (IOException cannotReset) { /* an ordinary close then */ }
+            close();
+        }
     }
 
     /** A pooled connection the server closed while it sat idle; the request never reached it. */
@@ -57,39 +66,68 @@ final class ConnectionPool implements AutoCloseable {
         Stale(IOException cause) { super(cause); }
     }
 
+    private final int maxIdlePerServer;
     private final Map<Integer, Deque<Connection>> idle = new HashMap<>();
+    /** Ports of servers that rejected the keep-alive field, so are asked for one request per connection. */
+    private final Set<Integer> oneRequestPerConnection = new HashSet<>();
     private boolean closed;
     private long opened;
     private long reused;
 
+    ConnectionPool() { this(DEFAULT_MAX_IDLE_PER_SERVER); }
+
+    /** A load test with many callers at once should keep as many idle connections as it has callers. */
+    ConnectionPool(int maxIdlePerServer) {
+        if (maxIdlePerServer < 1) { throw new IllegalArgumentException("Idle connections per server must be positive"); }
+        this.maxIdlePerServer = maxIdlePerServer;
+    }
+
     /** Sends one command and returns its reply; a server's error reply is returned, not thrown. */
     CommandReply execute(ServerEndpoint endpoint, String instruction, Map<String, Object> parameters) throws IOException {
+        boolean keepAlive;
+        synchronized (this) { keepAlive = !oneRequestPerConnection.contains(endpoint.port()); }
+        var reply = send(endpoint, instruction, parameters, keepAlive);
+        if (keepAlive && rejectsKeepAlive(reply)) {
+            synchronized (this) { oneRequestPerConnection.add(endpoint.port()); }
+            reply = send(endpoint, instruction, parameters, false);
+        }
+        return reply;
+    }
+
+    /** An older server answers the keep-alive field with INVALID_REQUEST, "Unknown field: connection". */
+    private static boolean rejectsKeepAlive(CommandReply reply) {
+        return reply.error() != null && reply.error().code().name().equals("INVALID_REQUEST")
+                && reply.error().message().contains("Unknown field: " + CommandProtocol.CONNECTION_FIELD);
+    }
+
+    private CommandReply send(ServerEndpoint endpoint, String instruction, Map<String, Object> parameters, boolean keepAlive) throws IOException {
         var messageId = UUID.randomUUID();
         var envelope = new LinkedHashMap<String, Object>();
         envelope.put("version", 1);
         envelope.put("messageId", messageId);
         envelope.put("instruction", instruction);
         envelope.put("parameters", parameters);
-        envelope.put(CommandProtocol.CONNECTION_FIELD, CommandProtocol.KEEP_ALIVE);
+        if (keepAlive) { envelope.put(CommandProtocol.CONNECTION_FIELD, CommandProtocol.KEEP_ALIVE); }
         String line = Json.write(envelope);
 
-        var pooled = take(endpoint.port());
+        var pooled = keepAlive ? take(endpoint.port()) : null;
         if (pooled != null) {
-            try { return converse(pooled, endpoint, messageId, line); }
+            try { return converse(pooled, endpoint, messageId, line, true); }
             catch (Stale stale) { /* fall through and send it again over a new connection */ }
         }
         var socket = new Socket();
         try {
             socket.connect(new InetSocketAddress("localhost", endpoint.port()), CONNECT_TIMEOUT_MILLIS);
         } catch (IOException e) {
-            try { socket.close(); } catch (IOException ignored) { /* never connected */ }
+            try { socket.close(); } catch (IOException neverConnected) { /* nothing to release */ }
             throw e;
         }
         synchronized (this) { opened++; }
-        return converse(new Connection(socket), endpoint, messageId, line);
+        return converse(new Connection(socket), endpoint, messageId, line, keepAlive);
     }
 
-    private CommandReply converse(Connection connection, ServerEndpoint endpoint, UUID messageId, String line) throws IOException {
+    private CommandReply converse(Connection connection, ServerEndpoint endpoint, UUID messageId, String line,
+                                  boolean keepAlive) throws IOException {
         boolean reusedConnection = connection.uses > 0;
         boolean clean = false;
         try {
@@ -118,6 +156,7 @@ final class ConnectionPool implements AutoCloseable {
                 throw reusedConnection ? new Stale(closedBeforeReply) : closedBeforeReply;
             }
             CommandReply reply = CommandProtocol.parseReply(text);
+            // An INVALID_REQUEST reply may carry no message ID if the server could not read the request at all.
             if (!messageId.equals(reply.messageId())) {
                 throw new IOException("Message ID mismatch: sent " + messageId + ", received " + reply.messageId());
             }
@@ -125,7 +164,8 @@ final class ConnectionPool implements AutoCloseable {
                 throw new IOException("Server ID mismatch: expected " + endpoint.serverId() + ", received " + reply.serverId());
             }
             connection.uses++;
-            clean = true;
+            // A request that did not ask for keep-alive is closed by the server after its reply.
+            clean = keepAlive && !rejectsKeepAlive(reply);
             return reply;
         } finally {
             if (clean) { release(endpoint.port(), connection); } else { connection.close(); }
@@ -146,7 +186,7 @@ final class ConnectionPool implements AutoCloseable {
         connection.idleSince = System.nanoTime();
         var queue = idle.computeIfAbsent(port, key -> new ArrayDeque<>());
         queue.addLast(connection);
-        while (queue.size() > MAX_IDLE_PER_SERVER) { queue.pollFirst().close(); }
+        while (queue.size() > maxIdlePerServer) { queue.pollFirst().reset(); }
         prune();
     }
 
@@ -154,7 +194,7 @@ final class ConnectionPool implements AutoCloseable {
         long now = System.nanoTime();
         for (var queues = idle.values().iterator(); queues.hasNext();) {
             var queue = queues.next();
-            while (!queue.isEmpty() && now - queue.peekFirst().idleSince > IDLE_LIMIT_NANOS) { queue.pollFirst().close(); }
+            while (!queue.isEmpty() && now - queue.peekFirst().idleSince > IDLE_LIMIT_NANOS) { queue.pollFirst().reset(); }
             if (queue.isEmpty()) { queues.remove(); }
         }
     }
@@ -163,13 +203,12 @@ final class ConnectionPool implements AutoCloseable {
     synchronized long opened() { return opened; }
     synchronized long reused() { return reused; }
 
-    /** Idle connections carry nothing, so they are reset rather than closed with a handshake that would park their ports in TIME_WAIT. */
+    /** Whether the server on this port was found to reject the keep-alive field. */
+    synchronized boolean oneRequestPerConnection(int port) { return oneRequestPerConnection.contains(port); }
+
     @Override public synchronized void close() {
         closed = true;
-        idle.values().forEach(queue -> queue.forEach(connection -> {
-            try { connection.socket.setSoLinger(true, 0); } catch (IOException cannotReset) { /* an ordinary close then */ }
-            connection.close();
-        }));
+        idle.values().forEach(queue -> queue.forEach(Connection::reset));
         idle.clear();
     }
 }

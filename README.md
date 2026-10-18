@@ -66,7 +66,7 @@ Swarm reply | messageId=<uuid> | serverId=alpha-Server-001 | connectionId=<id> |
 | `list` | Show every swarm, server ID, and actual main/admin port |
 | `status [name]` | Query the admin status of one or all swarms |
 | `send <name> <text or JSON>` | Send to each server; plain text invokes `echo` |
-| `test <name> [requests] [clients]` | Run a verified load test; defaults: 1,000 requests, concurrency 100 |
+| `test <name> [requests] [clients]` | Run a verified load test; defaults: 1,000 requests, concurrency 100; one kept-open connection per client |
 | `server <stop\|leave\|restart> <id>` | Act on one server by ID, for example `alpha-Server-002`. `stop` closes it without telling its peers and keeps it listed. `restart` starts it again on the same ports (a gossip server gets a new boot ID). `leave` publishes a graceful gossip departure and needs `--gossip`. |
 | `stop <name>` | Close every instance in one swarm |
 | `stop-all` | Close every managed instance |
@@ -82,7 +82,9 @@ closed; previously running swarms remain available.
 The load test sends `echo` requests round-robin across the selected swarm,
 using virtual-thread clients and a limit on requests in flight. Each request uses
 a unique message UUID, validates the expected server ID, and checks the expected
-text result. It uses the production echo protocol and needs no test plugins.
+text result. It uses the production echo protocol and needs no test plugins. Each client keeps one
+connection open and reuses it, so a run of 100,000 requests uses about as many connections as it has
+clients, not 100,000 (the connections are closed with a reset at the end, which leaves nothing in TIME_WAIT).
 Request counts range from 1 to 100,000; concurrency ranges from 1 to 1,000.
 Progress appears every 100 completions, followed by a summary:
 
@@ -181,14 +183,15 @@ one rejects the keep-alive field.
 Gossip returns at most 32 members per page. For a swarm larger than that, a server's "sees live
 peers" figure comes from the plugin's own count of ALIVE members, and the selected server's
 complete member list is fetched separately (`GET /api/servers/<id>/members`, which follows the
-plugin's cursor), so its table, lines and badges cover every member. Rating changes for servers
-that are not selected are detected from their first page only, so the event log can miss some in
-swarms over 32 servers.
+plugin's cursor), so its table, lines and badges cover every member. For these swarms the snapshot leaves
+out each server's member list, so the event log cannot name who rates whom; it logs when servers begin or stop
+rating a member SUSPECT, DEAD or LEFT, from each server's own counts. In smaller swarms the log names the pair.
 
 Click a server in the live page to see its socket activity in the dock under the canvas: counters
 (connections, requests, replies, errors, aborted, by instruction), a requests-per-second
-sparkline, and a feed with one row per connection (time, client port, instruction,
-message ID, result, milliseconds). Gossip exchanges can be hidden with the checkbox,
+sparkline, and a feed with one row per request (time, client port, connection number, instruction,
+message ID, result, milliseconds). A connection kept open for several requests shows as several rows
+with the same number, followed by a dot and the request's position on it. Gossip exchanges can be hidden with the checkbox,
 since they dominate a gossiping swarm. The data comes from the log lines the servers
 already print: the harness copies console output as it is written and parses it per
 server (`GET /api/servers/<id>/activity?after=<seq>`). The log has no message bodies, so
