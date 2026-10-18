@@ -25,6 +25,7 @@ public final class UiServer implements AutoCloseable {
     public static final String ACTION_HEADER = "X-Swarm-UI";
     private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart)");
 
+    private static final Pattern MEMBERS_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/members");
     private static final Pattern ACTIVITY_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/activity");
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -99,6 +100,8 @@ public final class UiServer implements AutoCloseable {
     private void activity(HttpExchange exchange, SwarmManager manager) throws IOException {
         String path = exchange.getRequestURI().getPath();
         if (ACTION_PATH.matcher(path).matches()) { reply(exchange, 405, "text/plain", "Only POST is supported here"); return; }
+        var members = MEMBERS_PATH.matcher(path);
+        if (members.matches()) { fullMembers(exchange, manager, members.group(1)); return; }
         var matcher = ACTIVITY_PATH.matcher(path);
         if (!matcher.matches()) { reply(exchange, 404, "application/json", error("Not found")); return; }
         String serverId = matcher.group(1);
@@ -116,6 +119,18 @@ public final class UiServer implements AutoCloseable {
             body.put("events", view.events());
         }
         reply(exchange, 200, "application/json; charset=utf-8", Json.write(body));
+    }
+
+    /** One gossip server's complete member list; a swarm larger than one 32-member page needs this to be seen whole. */
+    private void fullMembers(HttpExchange exchange, SwarmManager manager, String serverId) throws IOException {
+        var endpoint = manager.list().values().stream().flatMap(java.util.List::stream)
+                .filter(e -> e.serverId().equals(serverId)).findFirst();
+        if (endpoint.isEmpty()) { reply(exchange, 404, "application/json", error("Unknown server: " + serverId)); return; }
+        try {
+            reply(exchange, 200, "application/json; charset=utf-8", Json.write(SwarmSnapshot.fullMembers(manager, endpoint.get())));
+        } catch (IOException | RuntimeException e) {
+            reply(exchange, 502, "application/json", error(e.getMessage()));
+        }
     }
 
     private static long afterParameter(String query) {

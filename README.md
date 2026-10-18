@@ -123,7 +123,31 @@ Opened from that address, the page shows the live swarms and polls the snapshot
 every second. Opened as a plain file, it runs a simulated swarm instead. Gossip
 ratings appear only for servers that load the gossip plugin.
 
-Click a server in the live page to see its socket activity below the graph: counters
+The page fills the browser window. The server canvas takes all the space left by the
+side panels and a dock underneath it, and is built for swarms of up to 100 servers:
+
+- **Zoom:** mouse wheel (or pinch gesture on a trackpad), the `+` and `−` buttons, or the
+  `+` and `-` keys. Double-click empty canvas to zoom in there. The zoom percentage is shown
+  beside the buttons.
+- **Pan:** drag the empty canvas.
+- **Fit:** the Fit button or `0` frames every server. Until you move the view yourself, it
+  refits automatically when servers are added or removed or the window changes size.
+- **Focus:** the Focus button or `F` hides the side panels so the canvas gets the whole window.
+- **Find:** the Find box in the header selects a server by part of its ID (`50`, `Server-050`)
+  and brings it into view. Choosing a server in the left-hand list also scrolls it into view.
+- **Level of detail:** servers numbered inside the circle are drawn when zoomed in; zoomed out,
+  numbers and rings drop away and only each server's state and badge remain.
+- **Layout:** up to 12 servers per swarm sit on a ring; larger swarms are packed on a spiral so
+  100 servers fit in a compact disc.
+
+Gossip returns at most 32 members per page. For a swarm larger than that, a server's "sees live
+peers" figure comes from the plugin's own count of ALIVE members, and the selected server's
+complete member list is fetched separately (`GET /api/servers/<id>/members`, which follows the
+plugin's cursor), so its table, lines and badges cover every member. Rating changes for servers
+that are not selected are detected from their first page only, so the event log can miss some in
+swarms over 32 servers.
+
+Click a server in the live page to see its socket activity in the dock under the canvas: counters
 (connections, requests, replies, errors, aborted, by instruction), a requests-per-second
 sparkline, and a feed with one row per connection (time, client port, instruction,
 message ID, result, milliseconds). Gossip exchanges can be hidden with the checkbox,

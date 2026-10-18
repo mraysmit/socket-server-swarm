@@ -28,10 +28,10 @@
 
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;
-  padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:18px 40px}
-button,select{font:inherit;color:inherit}
+  padding-inline:max(12px,env(safe-area-inset-left,0px)) max(12px,env(safe-area-inset-right,0px));padding-block:10px 24px}
+button,select,input{font:inherit;color:inherit}
 h1,h2,h3,p{margin:0}
-.wrap{max-width:1500px;margin-inline:auto;display:flex;flex-direction:column;gap:16px}
+.wrap{display:flex;flex-direction:column;gap:12px}
 .mono{font-family:var(--mono)}
 
 /* header */
@@ -52,14 +52,16 @@ select{background:var(--panel);border:1px solid var(--line);border-radius:6px;pa
 .sep{width:1px;height:22px;background:var(--line)}
 .banner{border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:6px 10px;font-size:13px}
 
-/* three-column app */
-.app{display:grid;grid-template-columns:230px minmax(0,1fr) 350px;gap:16px;align-items:start}
+/* three-column app that fills the window: swarm list | canvas and dock | inspector */
+.app{display:grid;grid-template-columns:clamp(200px,14vw,260px) minmax(0,1fr) clamp(320px,24vw,440px);gap:12px;align-items:stretch;
+  height:max(560px,calc(100dvh - 76px))}
+.app>.card{display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
 .card h2{font-size:11px;font-family:var(--mono);font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
 .card>header{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px}
 
 /* swarm list */
-.swarms{display:flex;flex-direction:column}
+.swarms{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto}
 .swarm{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
 .swarm:last-child{border-bottom:0}
 .swarm .hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
@@ -76,31 +78,44 @@ select{background:var(--panel);border:1px solid var(--line);border-radius:6px;pa
 .chip.st-start .dot{border-color:var(--line);border-style:dotted}
 .hint{padding:12px 14px;color:var(--mute);font-size:12px;border-top:1px solid var(--line)}
 
-/* stage */
-.stage{padding:0;overflow:hidden}
-svg{display:block;width:100%;height:auto}
-.slabel{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;fill:var(--mute)}
+/* stage: the canvas takes all the space the dock leaves; --k is the zoom, so lines and labels keep a readable size on screen */
+.stage{padding:0}
+.canvas{position:relative;flex:1;min-height:0;overflow:hidden}
+.canvas>svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab;user-select:none}
+.canvas.panning>svg{cursor:grabbing}
+svg{display:block}
+.slabel{font-family:var(--mono);font-size:calc(12px / var(--k,1));letter-spacing:.08em;text-transform:uppercase;fill:var(--mute);text-anchor:middle}
+.zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px}
+.zoom .btn{padding:4px 10px;min-width:34px}
+.zoom .pct{font-family:var(--mono);font-size:12px;min-width:48px;text-align:center;color:var(--mute);font-variant-numeric:tabular-nums}
+.canvas-sel{position:absolute;left:12px;top:12px;display:flex;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-family:var(--mono);font-size:13px}
 .node{cursor:pointer;outline:none}
-.node .body{fill:var(--panel);stroke-width:3}
+.node .body{fill:var(--panel);stroke-width:max(3px,calc(2.5px / var(--k,1)))}
+svg[data-lod="mid"] .nid,svg[data-lod="low"] .nid{display:none}
+svg[data-lod="low"] .arcbg,svg[data-lod="low"] .arc{display:none}
+.focus .app{grid-template-columns:minmax(0,1fr)}
+.focus .app>aside{display:none}
 .node.st-up .body{stroke:var(--ok)}
 .node.st-down .body{stroke:var(--bad);stroke-dasharray:5 4}
 .node.st-left .body{stroke:var(--gone);stroke-dasharray:2 5;stroke-linecap:round}
 .node.st-start .body{stroke:var(--line);stroke-dasharray:1 5;stroke-linecap:round}
 .node.st-down .nid,.node.st-left .nid,.node.st-start .nid{fill:var(--mute)}
 .nid{font-family:var(--mono);font-size:14px;font-weight:500;fill:var(--ink);text-anchor:middle}
-.arcbg{fill:none;stroke:var(--soft);stroke-width:4}
-.arc{fill:none;stroke:var(--accent);stroke-width:4;stroke-linecap:butt}
+.arcbg{fill:none;stroke:var(--soft);stroke-width:max(4px,calc(2px / var(--k,1)))}
+.arc{fill:none;stroke:var(--accent);stroke-width:max(4px,calc(2px / var(--k,1)));stroke-linecap:butt}
 .selring{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:3 3;display:none}
 .node.sel .selring,.node:focus-visible .selring{display:block}
 .grp{font-family:var(--mono);font-size:11px;fill:var(--mute);text-anchor:middle}
 .badge{stroke:var(--panel);stroke-width:2}
 .b-ALIVE{fill:var(--ok)} .b-SUSPECT{fill:var(--warn)} .b-DEAD{fill:var(--bad)} .b-LEFT{fill:var(--gone)} .b-NONE,.b-CANDIDATE{fill:var(--panel);stroke:var(--mute);stroke-width:1.5}
-.eye{stroke-width:1.5;opacity:.45;fill:none}
+.eye{stroke-width:max(1.5px,calc(1px / var(--k,1)));opacity:.45;fill:none}
 .eye.ALIVE{stroke:var(--ok)} .eye.SUSPECT{stroke:var(--warn);stroke-dasharray:4 4} .eye.DEAD{stroke:var(--bad);stroke-dasharray:2 5} .eye.LEFT,.eye.CANDIDATE{stroke:var(--gone);stroke-dasharray:1 6}
 .pulse{fill:var(--accent)}
 .pulse.rep{opacity:.65}
 .pulse.drop{fill:var(--bad)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 20px;padding:10px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--mute)}
+.legend{position:absolute;left:12px;bottom:12px;max-width:min(360px,60%);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--mute)}
+.legend summary{cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;list-style-position:inside}
+.legend-items{display:flex;flex-direction:column;gap:6px;padding:8px 0 4px}
 .legend span{display:inline-flex;align-items:center;gap:6px}
 .legend svg{width:18px;height:18px;flex:none}
 
@@ -136,12 +151,31 @@ td.m{font-family:var(--mono)} td.r,th.r{text-align:right}
 .spark .line{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round}
 .spark .area{fill:var(--accent);opacity:.12}
 .spark .base{stroke:var(--line);stroke-width:1}
-.feedwrap{max-height:300px;overflow:auto}
+.feedwrap{overflow:auto}
 .feedwrap td.dim,.feedwrap tr.dim td{color:var(--mute)}
 .p-OK{color:var(--ok)} .p-ERROR,.p-ABORTED{color:var(--bad)} .p-IN_FLIGHT{color:var(--warn)} .p-CONNECTED{color:var(--gone)}
 
+/* dock under the canvas: socket activity and events stay on screen */
+#insp-table{flex:1;min-height:0;overflow:auto}
+.dock{flex:none;height:min(30%,280px);min-height:150px;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.dock.collapsed{height:auto;min-height:0}
+.dock.collapsed .dock-body{display:none}
+.dock-bar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.dock.collapsed .dock-bar{border-bottom:0}
+.tab{background:none;border:1px solid transparent;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--mute)}
+.tab[aria-selected="true"]{color:var(--ink);border-color:var(--line);background:var(--bg)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.grow{flex:1}
+.dock-body{flex:1;min-height:0;overflow:auto}
+#pane-activity{display:flex;flex-direction:column;overflow:hidden}
+#pane-activity .act-top{padding:8px 14px}
+#pane-activity .feedwrap{flex:1;min-height:0}
+.btn.small{padding:3px 9px;font-size:12px}
+input.find{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 9px;width:170px}
+input.find:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
 /* log */
-.log{list-style:none;margin:0;padding:0;max-height:240px;overflow:auto;font-family:var(--mono);font-size:12px}
+.log{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:12px}
 .log li{display:grid;grid-template-columns:64px 96px 1fr;gap:10px;padding:5px 14px;border-bottom:1px solid var(--soft)}
 .log .t{color:var(--mute)}
 .log .k{text-transform:uppercase;letter-spacing:.05em}
@@ -155,7 +189,14 @@ td.m{font-family:var(--mono)} td.r,th.r{text-align:right}
 .notes p{color:var(--mute);font-size:13px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
-@media (max-width:1180px){.app{grid-template-columns:minmax(0,1fr)} .swarms{flex-direction:row;flex-wrap:wrap} .swarm{flex:1 1 220px;border-bottom:0;border-right:1px solid var(--line)}}
+@media (max-width:1180px){
+  .app{grid-template-columns:minmax(0,1fr);height:auto}
+  .app>.card{overflow:visible}
+  .canvas{flex:none;height:62dvh;min-height:360px}
+  .dock{height:340px}
+  .swarms{flex-direction:row;flex-wrap:wrap;overflow:visible}
+  .swarm{flex:1 1 220px;border-bottom:0;border-right:1px solid var(--line)}
+}
 @media (prefers-reduced-motion:reduce){.meter i{transition:none}}
 body{margin:0}
 [hidden]{display:none!important}
@@ -170,7 +211,10 @@ body{margin:0}
       <span class="tag" id="modetag">Simulated swarm</span>
       <span class="clock" id="clock">t+0s</span>
     </div>
-    <div class="bar-controls" role="toolbar" aria-label="Simulation controls">
+    <div class="bar-controls" role="toolbar" aria-label="Controls">
+      <label class="sr" for="find">Find a server</label>
+      <input class="find" id="find" type="search" placeholder="Find a server" autocomplete="off" title="Type part of a server ID and press Enter to select it and bring it into view">
+      <span class="sep"></span>
       <button class="btn" id="pause" aria-pressed="false">Pause</button>
       <label class="sr" for="speed">Speed</label>
       <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
@@ -190,10 +234,21 @@ body{margin:0}
     </aside>
 
     <main class="card stage" aria-label="Swarm graph">
-      <svg id="stage" viewBox="0 0 1000 640" role="img" aria-label="Live graph of server swarms and gossip exchanges">
-        <g id="g-under"></g><g id="g-pulses"></g><g id="g-nodes"></g>
-      </svg>
-      <div class="legend">
+      <div class="canvas" id="canvas">
+        <svg id="stage" role="img" aria-label="Live graph of server swarms and gossip exchanges. Scroll to zoom, drag to pan.">
+          <g id="world"><g id="g-under"></g><g id="g-pulses"></g><g id="g-nodes"></g></g>
+        </svg>
+        <div class="canvas-sel" id="canvas-sel" hidden></div>
+        <div class="zoom" role="group" aria-label="Zoom">
+          <button class="btn" id="zout" title="Zoom out (−)" aria-label="Zoom out">−</button>
+          <span class="pct" id="zpct" aria-live="off">100%</span>
+          <button class="btn" id="zin" title="Zoom in (+)" aria-label="Zoom in">+</button>
+          <button class="btn" id="zfit" title="Fit every server in view (0)">Fit</button>
+          <button class="btn" id="zfocus" aria-pressed="false" title="Hide the side panels to give the canvas the whole window (F)">Focus</button>
+        </div>
+        <details class="legend">
+          <summary>Legend</summary>
+        <div class="legend-items">
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--ok)" stroke-width="3"/></svg>Running</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--bad)" stroke-width="3" stroke-dasharray="4 3"/></svg>Stopped</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--gone)" stroke-width="3" stroke-dasharray="1.5 4" stroke-linecap="round"/></svg>Left</span>
@@ -201,7 +256,28 @@ body{margin:0}
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="5" fill="var(--warn)"/></svg>Badge: how the selected server rates it</span>
         <span class="simonly"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--accent)"/></svg>Exchange in flight</span>
         <span class="simonly"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--bad)"/></svg>Exchange failed</span>
+        </div>
+        </details>
       </div>
+      <section class="dock" id="dock" aria-label="Socket activity and events">
+        <div class="dock-bar" role="tablist">
+          <button class="tab" id="tab-activity" role="tab" aria-selected="true" aria-controls="pane-activity" data-tab="activity" title="Each row is one connection to the server's main port. The server logs who connected, the instruction, the message ID and the reply status. It does not log message bodies.">Socket activity</button>
+          <button class="tab" id="tab-events" role="tab" aria-selected="false" aria-controls="pane-events" data-tab="events">Events</button>
+          <span class="grow"></span>
+          <label class="check" id="act-gossip-label"><input type="checkbox" id="act-gossip" checked> Show gossip exchanges</label>
+          <button class="btn small" id="dock-toggle" aria-expanded="true" title="Collapse or expand this panel">Hide</button>
+        </div>
+        <div class="dock-body" id="pane-activity" role="tabpanel">
+          <div class="act-top">
+            <dl class="act-stats" id="act-stats"></dl>
+            <div class="spark" id="act-spark"></div>
+          </div>
+          <div class="feedwrap tablewrap" id="act-feed"></div>
+        </div>
+        <div class="dock-body" id="pane-events" role="tabpanel" hidden>
+          <ol class="log" id="log"></ol>
+        </div>
+      </section>
     </main>
 
     <aside class="card" aria-label="Server inspector">
@@ -211,24 +287,6 @@ body{margin:0}
       <div class="tablewrap" id="insp-table"></div>
     </aside>
   </div>
-
-  <section class="card" id="activity" aria-label="Socket activity" hidden>
-    <header>
-      <h2 id="act-title">Socket activity</h2>
-      <label class="check"><input type="checkbox" id="act-gossip" checked> Show gossip exchanges</label>
-    </header>
-    <div class="act-top">
-      <dl class="act-stats" id="act-stats"></dl>
-      <div class="spark" id="act-spark"></div>
-    </div>
-    <div class="feedwrap tablewrap" id="act-feed"></div>
-    <p class="hint" id="act-note">Each row is one connection to the server's main port. The server logs who connected, the instruction, the message ID and the reply status. It does not log message bodies.</p>
-  </section>
-
-  <section class="card" aria-label="Event log">
-    <header><h2>Events</h2><span class="clock">newest first</span></header>
-    <ol class="log" id="log"></ol>
-  </section>
 
   <section class="card" aria-label="Design guidelines">
     <header><h2>Design guidelines</h2></header>
@@ -251,6 +309,9 @@ const CFG={round:1000,suspect:7000,dead:16000,retain:32000,travel:650,fanout:2,l
 let T=0,nodes=[],pulses=[],sel=null,paused=false,speed=1,partition=false,logs=[],portN=0;
 /* Live mode reads /api/snapshot from the harness that served this page; otherwise a simulated swarm runs in the browser. */
 let LIVE=false,lastOk=0,pollFailures=0,seenSwarms=new Set(),actionBusy=false,actionNote='';
+/* Camera: world coordinates are drawn through translate(tx ty) scale(k). Until the user moves it, the view refits as servers come and go. */
+const view={k:1,tx:0,ty:0},MINK=0.04,MAXK=8;
+let userView=false,focusMode=false,worldBox={x:0,y:0,w:1000,h:640},dockTab='activity',dockOpen=true,fitDone=false;
 const announced=new Set(),convState={};
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd=(a,b)=>a+Math.random()*(b-a);
@@ -326,6 +387,8 @@ function know(o){
   if(!o.up||o.left||!o.started||(LIVE&&!o.gossip))return null;
   const running=nodes.filter(m=>m.swarm===o.swarm&&m.started&&m.up&&!m.left);
   let c=0;for(const m of running){const e=entryFor(o.view,m);if(e&&assess(e)==='ALIVE')c++;}
+  /* A members page holds 32 rows. When the page is cut short, the plugin's own count of ALIVE members is the exact figure. */
+  if(LIVE&&o.truncated&&o.aliveCount!==undefined)c=Math.min(running.length,o.aliveCount);
   return{c,n:running.length};
 }
 function conv(s){
@@ -408,8 +471,18 @@ function applyGossip(o,g,announce){
     if(prevDep==='NOT_REQUESTED'&&o.dep!=='NOT_REQUESTED')ev('leaving',`${o.id} began a graceful departure`);
   }
   const page=g.members||{};
+  /* A page holds at most 32 members. For a bigger swarm the page is cut short and the selected server's full list is
+     fetched separately; the plugin's own ALIVE count stands in for every other server. */
+  o.pageTruncated=!!page.nextCursor||!!g.membersOmitted;
+  o.aliveCount=st.assessments&&st.assessments.ALIVE!==undefined?Number(st.assessments.ALIVE):undefined;
+  const fresh=o.pageTruncated&&o.fullAt&&T-o.fullAt<4000;
+  if(!fresh)setView(o,self,page.members||[]);
+  o.truncated=o.pageTruncated&&!fresh;
+}
+/* Rebuilds what one server believes about the others from the plugin's member rows. */
+function setView(o,self,members){
   const rows=[{r:self,age:0,rating:self.state==='LEFT'?'LEFT':'ALIVE'}];
-  for(const m of page.members||[])rows.push({r:m,age:Number(m.advanceAgeMillis)||0,rating:m.assessment});
+  for(const m of members)rows.push({r:m,age:Number(m.advanceAgeMillis)||0,rating:m.assessment});
   const keep=new Set();
   for(const x of rows){
     if(!x.r.serverId)continue;
@@ -420,7 +493,6 @@ function applyGossip(o,g,announce){
     e.hb=Number(x.r.heartbeat)||0;e.adv=T-x.age;e.left=x.r.state==='LEFT';e.rating=rating;
   }
   for(const k of [...o.view.keys()])if(!keep.has(k))o.view.delete(k);
-  o.truncated=!!page.nextCursor;
 }
 function applySnapshot(snap,first){
   const announce=!first,present=new Set(),names=new Set();
@@ -461,7 +533,7 @@ function restart(o){
 }
 function addServer(){
   const s=sel?sel.swarm:swarms()[0];const ns=nodes.filter(n=>n.swarm===s);
-  if(ns.length>=8)return;
+  if(ns.length>=100)return;
   const n=mk(s,Math.max(...ns.map(x=>x.n))+1,0);n.group=n.n%2;
 }
 function newSwarm(){
@@ -477,16 +549,65 @@ function setPartition(on){
 }
 
 /* layout and render */
+/* World layout. Up to 12 servers sit on a ring; larger swarms are packed on a sunflower spiral, which keeps neighbours about
+   76 units apart however many there are (100 servers fit in a disc of radius about 420). Swarms sit in a grid of equal cells. */
+const NODE_ROOM=64;
 function layout(){
-  const ss=swarms(),S=ss.length,cols=S<=1?1:2,rows=Math.ceil(S/cols),cw=1000/cols,ch=640/rows,labels=[];
-  ss.forEach((s,si)=>{
-    const cx=(si%cols+.5)*cw,cy=(Math.floor(si/cols)+.5)*ch+(rows>1?14:10);
+  const ss=swarms(),S=ss.length,labels=[];
+  const specs=ss.map(s=>{
     const ns=nodes.filter(n=>n.swarm===s),m=ns.length;
-    const R=m<2?0:Math.max(40,Math.min(cw,ch)/2-(rows>1?72:80))*(m===2?.55:1);
-    ns.forEach((n,k)=>{const a=-Math.PI/2+2*Math.PI*k/m;n.x=cx+R*Math.cos(a);n.y=cy+R*Math.sin(a);});
-    labels.push({s,x:(si%cols)*cw+24,y:Math.floor(si/cols)*ch+34});
+    if(m<=1)return{s,ns,radius:0,at:()=>[0,0]};
+    if(m<=12){
+      const radius=m===2?70:Math.max(90,m*74/(2*Math.PI));
+      return{s,ns,radius,at:k=>{const a=-Math.PI/2+2*Math.PI*k/m;return[radius*Math.cos(a),radius*Math.sin(a)];}};
+    }
+    const a=42;
+    return{s,ns,radius:a*Math.sqrt(m),at:k=>{const r=a*Math.sqrt(k+.5),t=k*2.399963;return[r*Math.cos(t),r*Math.sin(t)];}};
   });
+  if(!S){worldBox={x:0,y:0,w:1000,h:640};return labels;}
+  const cols=S<=2?S:Math.ceil(Math.sqrt(S)),rows=Math.ceil(S/cols);
+  const cell=2*(Math.max(...specs.map(p=>p.radius))+NODE_ROOM),cellH=cell+60;
+  specs.forEach((p,si)=>{
+    const cx=(si%cols+.5)*cell,cy=Math.floor(si/cols)*cellH+cellH/2+24;
+    p.ns.forEach((n,k)=>{const [dx,dy]=p.at(k);n.x=cx+dx;n.y=cy+dy;});
+    labels.push({s:p.s,x:cx,y:cy-p.radius-NODE_ROOM+8});
+  });
+  worldBox={x:0,y:0,w:cols*cell,h:rows*cellH};
   return labels;
+}
+/* camera */
+function canvasSize(){const r=$('#stage').getBoundingClientRect();return{w:r.width,h:r.height};}
+function applyView(){
+  const svg=$('#stage');
+  $('#world').setAttribute('transform',`translate(${view.tx.toFixed(2)} ${view.ty.toFixed(2)}) scale(${view.k.toFixed(5)})`);
+  svg.style.setProperty('--k',view.k.toFixed(5));
+  svg.dataset.lod=view.k>=0.55?'full':view.k>=0.28?'mid':'low';
+  $('#zpct').textContent=Math.round(view.k*100)+'%';
+  $('#zout').disabled=view.k<=MINK*1.001;$('#zin').disabled=view.k>=MAXK*.999;
+}
+function fitView(){
+  const {w,h}=canvasSize();if(w<10||h<10)return;
+  const pad=40,b=worldBox;
+  const k=Math.max(MINK,Math.min(2.2,Math.min(Math.max(10,w-2*pad)/b.w,Math.max(10,h-2*pad)/b.h)));
+  view.k=k;view.tx=(w-b.w*k)/2-b.x*k;view.ty=(h-b.h*k)/2-b.y*k;
+  userView=false;fitDone=true;applyView();
+}
+function zoomAt(factor,cx,cy){
+  const k=Math.max(MINK,Math.min(MAXK,view.k*factor));
+  if(k===view.k)return;
+  const wx=(cx-view.tx)/view.k,wy=(cy-view.ty)/view.k;
+  view.k=k;view.tx=cx-wx*k;view.ty=cy-wy*k;userView=true;applyView();
+}
+function zoomCentre(factor){const {w,h}=canvasSize();zoomAt(factor,w/2,h/2);}
+/* Brings a server into view, keeping the current zoom unless it is too small to read a node. */
+function centerOn(o){
+  const {w,h}=canvasSize();if(!o||w<10)return;
+  if(view.k<0.5){view.k=0.8;}
+  view.tx=w/2-o.x*view.k;view.ty=h/2-o.y*view.k;userView=true;applyView();
+}
+function offscreen(o){
+  const {w,h}=canvasSize(),x=o.x*view.k+view.tx,y=o.y*view.k+view.ty,m=30;
+  return x<m||y<m||x>w-m||y>h-m;
 }
 function setHTML(el,html){
   if(el._h===html)return;el._h=html;
@@ -497,14 +618,16 @@ function setHTML(el,html){
 const C=2*Math.PI*33;
 function renderGraph(){
   const labels=layout();let under='',top='';
-  if(!nodes.length)under+=`<text x="500" y="300" text-anchor="middle" style="font-size:20px;fill:var(--ink)">No swarms running</text><text x="500" y="334" text-anchor="middle" class="slabel" style="letter-spacing:.04em;text-transform:none">Start one in the harness console, for example: start alpha 3</text>`;
-  for(const l of labels){const c=conv(l.s);under+=`<text class="slabel" x="${l.x}" y="${l.y}">${esc(l.s)} · ${nodes.filter(n=>n.swarm===l.s).length} servers${c===null?'':' · '+Math.round(c*100)+'%'}</text>`;}
+  const layoutKey=swarms().map(s=>s+':'+nodes.filter(n=>n.swarm===s).length).join(',');
+  if(layoutKey!==renderGraph.lastKey||!fitDone){renderGraph.lastKey=layoutKey;if(!userView||!fitDone)fitView();}
+  if(!nodes.length)under+=`<text x="500" y="300" text-anchor="middle" style="font-size:calc(20px / var(--k,1));fill:var(--ink)">No swarms running</text><text x="500" y="${300+34/view.k}" text-anchor="middle" class="slabel" style="letter-spacing:.02em;text-transform:none;font-size:calc(13px / var(--k,1))">Start one in the harness console, for example: start alpha 3</text>`;
+  for(const l of labels){const c=conv(l.s),n=nodes.filter(m=>m.swarm===l.s).length;under+=`<text class="slabel" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}">${esc(l.s)} · ${n} server${n===1?'':'s'}${c===null?'':' · '+Math.round(c*100)+'%'}</text>`;}
   if(sel&&sel.up&&sel.started){
     for(const o of nodes){if(o===sel)continue;const e=entryFor(sel.view,o);
       if(e)under+=`<line class="eye ${assess(e)}" x1="${sel.x}" y1="${sel.y}" x2="${o.x}" y2="${o.y}"/>`;}
   }
   for(const o of nodes){
-    const st=state(o),k=know(o),f=k?k.c/k.n:0;
+    const st=state(o),k=know(o),f=k?Math.min(1,k.c/k.n):0;
     let badge='';
     if(sel&&sel!==o&&sel.started&&sel.up){const e=entryFor(sel.view,o);badge=`<circle class="badge b-${e?assess(e):'NONE'}" cx="22" cy="-22" r="7"/>`;}
     const stName={up:'running',down:'stopped',left:'left',start:'starting'}[st];
@@ -585,6 +708,9 @@ function renderAll(){
     banner.textContent=PARTITION_NOTE;
   }
   renderGraph();renderSwarms();renderPanel();renderLog();renderActivity();
+  const cs=$('#canvas-sel');
+  cs.hidden=!(focusMode&&sel);
+  if(!cs.hidden)setHTML(cs,`<span>${esc(sel.id)}</span>${pill(worker(sel))}`);
   $('#partition').setAttribute('aria-pressed',partition);
   $('#pause').setAttribute('aria-pressed',paused);
   $('#pause').textContent=paused?'Resume':(LIVE?'Pause updates':'Pause');
@@ -592,11 +718,17 @@ function renderAll(){
 const PARTITION_NOTE=$('#banner').textContent;
 
 /* events */
-function select(id){sel=byId(id)||sel;renderAll();if(LIVE)fetchActivity().then(renderActivity);}
+/* fromList: chosen from the server list or Find, so bring it into view if it is off the canvas */
+function select(id,fromList){
+  sel=byId(id)||sel;
+  if(fromList&&sel&&offscreen(sel))centerOn(sel);
+  renderAll();
+  if(LIVE)refreshSelected().then(renderAll);
+}
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
   const a=b.dataset.act;
-  if(a==='select')select(b.dataset.id);
+  if(a==='select')select(b.dataset.id,true);
   else if(LIVE&&sel&&(a==='leave'||a==='stop'||a==='restart'))runAction(a,sel);
   else if(a==='leave'&&sel){leave(sel);renderAll();}
   else if(a==='stop'&&sel){stop(sel);renderAll();}
@@ -615,9 +747,75 @@ async function runAction(act,o){
   try{applySnapshot(await fetchSnapshot(),false);lastOk=T;pollFailures=0;}catch{pollFailures++;}
   renderAll();
 }
-const stage=$('#stage');
-stage.addEventListener('pointerdown',e=>{const g=e.target.closest('.node');if(g)select(g.dataset.id);});
+const stage=$('#stage'),canvas=$('#canvas');
+let pan=null;
+stage.addEventListener('pointerdown',e=>{
+  const g=e.target.closest('.node');
+  if(g){select(g.dataset.id);return;}
+  if(e.button!==0)return;
+  pan={x:e.clientX,y:e.clientY,tx:view.tx,ty:view.ty,moved:false};
+  stage.setPointerCapture(e.pointerId);canvas.classList.add('panning');
+});
+stage.addEventListener('pointermove',e=>{
+  if(!pan)return;
+  const dx=e.clientX-pan.x,dy=e.clientY-pan.y;
+  if(!pan.moved&&Math.hypot(dx,dy)<3)return;
+  pan.moved=true;userView=true;view.tx=pan.tx+dx;view.ty=pan.ty+dy;applyView();
+});
+const endPan=()=>{pan=null;canvas.classList.remove('panning');};
+stage.addEventListener('pointerup',endPan);
+stage.addEventListener('pointercancel',endPan);
+stage.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=stage.getBoundingClientRect(),unit=e.deltaMode===1?16:1;
+  zoomAt(Math.exp(-e.deltaY*unit*(e.ctrlKey?0.01:0.0015)),e.clientX-r.left,e.clientY-r.top);
+},{passive:false});
+stage.addEventListener('dblclick',e=>{
+  if(e.target.closest('.node'))return;
+  const r=stage.getBoundingClientRect();zoomAt(1.6,e.clientX-r.left,e.clientY-r.top);
+});
 stage.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const g=e.target.closest('.node');if(g){e.preventDefault();select(g.dataset.id);}}});
+$('#zin').addEventListener('click',()=>zoomCentre(1.25));
+$('#zout').addEventListener('click',()=>zoomCentre(1/1.25));
+$('#zfit').addEventListener('click',fitView);
+function setFocus(on){
+  focusMode=on;document.body.classList.toggle('focus',on);
+  $('#zfocus').setAttribute('aria-pressed',on);
+  /* the canvas changes size, so wait one frame, then refit unless the user has framed the view */
+  requestAnimationFrame(()=>{if(userView)applyView();else fitView();renderAll();});
+}
+$('#zfocus').addEventListener('click',()=>setFocus(!focusMode));
+document.addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.metaKey||e.altKey||/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))return;
+  if(e.key==='+'||e.key==='='){zoomCentre(1.25);e.preventDefault();}
+  else if(e.key==='-'||e.key==='_'){zoomCentre(1/1.25);e.preventDefault();}
+  else if(e.key==='0'){fitView();e.preventDefault();}
+  else if(e.key==='f'||e.key==='F'){setFocus(!focusMode);e.preventDefault();}
+});
+new ResizeObserver(()=>{if(!fitDone)return;if(userView)applyView();else fitView();}).observe(canvas);
+$('#find').addEventListener('keydown',e=>{
+  if(e.key!=='Enter')return;
+  const q=e.target.value.trim().toLowerCase();if(!q)return;
+  const hits=nodes.filter(n=>n.id.toLowerCase().includes(q));
+  const o=hits.find(n=>n.id.toLowerCase()===q)||hits.find(n=>n.id.toLowerCase().endsWith('-'+q))||hits[0];
+  e.target.setCustomValidity(o?'':'No such server');
+  if(o){select(o.id);centerOn(o);renderAll();}
+  e.target.title=o?'Type part of a server ID and press Enter':'No server matches "'+q+'"';
+});
+/* dock: tabs and collapse */
+function showDock(){
+  const live=LIVE;
+  $('#tab-activity').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);
+  if(!live)dockTab='events';
+  for(const t of['activity','events']){
+    $('#tab-'+t).setAttribute('aria-selected',dockTab===t);
+    $('#pane-'+t).hidden=dockTab!==t;
+  }
+  $('#dock').classList.toggle('collapsed',!dockOpen);
+  $('#dock-toggle').textContent=dockOpen?'Hide':'Show';$('#dock-toggle').setAttribute('aria-expanded',dockOpen);
+}
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{dockTab=t.dataset.tab;dockOpen=true;showDock();renderAll();if(LIVE)refreshSelected().then(renderAll);}));
+$('#dock-toggle').addEventListener('click',()=>{dockOpen=!dockOpen;showDock();requestAnimationFrame(()=>{if(userView)applyView();else fitView();});});
 $('#pause').addEventListener('click',()=>{paused=!paused;renderAll();});
 $('#speed').addEventListener('change',e=>{speed=+e.target.value;});
 $('#partition').addEventListener('click',()=>{setPartition(!partition);renderAll();});
@@ -647,8 +845,26 @@ function mergeActivity(a,j){
   if(a.lastWall&&now>a.lastWall){a.samples.push(Math.max(0,(j.counters.requests-a.lastReq)/((now-a.lastWall)/1000)));if(a.samples.length>60)a.samples.shift();}
   a.lastWall=now;a.lastReq=j.counters.requests;
 }
+/* the selected server's complete member list, paged on the harness side; only needed when the snapshot page was cut short */
+let fullBusy=false;
+async function fetchFullView(o){
+  if(!LIVE||!o||!o.gossip||!o.pageTruncated||paused||fullBusy)return;
+  fullBusy=true;
+  try{
+    const r=await fetch('/api/servers/'+encodeURIComponent(o.id)+'/members',{cache:'no-store'});
+    if(r.ok){
+      const j=await r.json();
+      if(Array.isArray(j.members)&&o===sel){
+        setView(o,{serverId:o.id,bootId:o.boot,heartbeat:o.hb,state:o.left?'LEFT':'ALIVE'},j.members);
+        o.fullAt=T;o.truncated=j.complete===false;
+      }
+    }
+  }catch{ /* the next poll tries again */ }
+  fullBusy=false;
+}
+const refreshSelected=()=>Promise.all([fetchActivity(),fetchFullView(sel)]);
 async function fetchActivity(){
-  if(!LIVE||!sel||paused||actBusy)return;
+  if(!LIVE||!sel||paused||actBusy||!dockOpen||dockTab!=='activity')return;
   actBusy=true;
   const a=actFor(sel.id);
   try{
@@ -658,7 +874,7 @@ async function fetchActivity(){
   actBusy=false;
 }
 async function pollActivity(){
-  await fetchActivity();
+  await refreshSelected();
   renderActivity();
   setTimeout(pollActivity,1000);
 }
@@ -672,11 +888,9 @@ function sparkline(samples){
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Requests per second over the last minute, peak ${top.toFixed(0)}"><line class="base" x1="0" y1="${H-1}" x2="${W}" y2="${H-1}"/><polygon class="area" points="${area}"/><polyline class="line" points="${line}"/><circle cx="${pts[n-1][0].toFixed(1)}" cy="${pts[n-1][1].toFixed(1)}" r="2.6" fill="var(--accent)"/></svg>`;
 }
 function renderActivity(){
-  const card=$('#activity');
-  card.hidden=!LIVE||!sel;
-  if(card.hidden)return;
+  $('#tab-activity').textContent=LIVE&&sel?'Socket activity · '+sel.id:'Socket activity';
+  if(!LIVE||!sel||!dockOpen||dockTab!=='activity')return;
   const a=actFor(sel.id),c=a.counters;
-  $('#act-title').textContent='Socket activity · '+sel.id;
   if(!a.available){
     setHTML($('#act-stats'),'');setHTML($('#act-spark'),'');
     setHTML($('#act-feed'),'<p class="hint" style="border:0">This harness is not recording socket activity.</p>');
@@ -721,6 +935,7 @@ function enterLiveMode(){
   for(const id of['speed','partition','newswarm','addserver'])$('#'+id).hidden=true;
   document.querySelectorAll('.sep,.simonly').forEach(el=>{el.hidden=true;});
   $('#hint').textContent='Ratings are each server’s own gossip view of its peers. Timings come from the gossip settings on each server. Servers without the plugin show only whether they answer.';
+  showDock();
 }
 function startSimulation(){
   [0,500,1000,1600,2200].forEach((d,i)=>mk('alpha',i+1,d));
@@ -749,6 +964,7 @@ async function boot(){
     }catch{ /* not served by the harness: fall through to the simulation */ }
   }
   if(!LIVE)startSimulation();
+  showDock();
   renderAll();updatePulses();
   requestAnimationFrame(frame);
 }

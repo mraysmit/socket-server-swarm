@@ -2,7 +2,7 @@
 
 ## Overview
 
-The suite has 50 test methods (62 cases with parameterized inputs) in five JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 52 test methods (65 cases with parameterized inputs) in five JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
@@ -60,9 +60,9 @@ The suite has 50 test methods (62 cases with parameterized inputs) in five JUnit
 | installCopiesConsoleOutputToTheRecorderAndRestoresTheStreams | Console output still reaches the original stream, lines split across writes are joined, and closing restores System.out and System.err. |
 | recordsRealServerTrafficFromTheirLogLines | Real servers' echo requests are recorded with counters, message IDs and client addresses. |
 
-### UiServerTest (11 methods)
+### UiServerTest (12 methods)
 
-The two activity endpoint tests (`activityEndpointServesAServersSocketActivityAndOnlyNewEvents` and `activityEndpointSaysSoWhenNothingIsRecordedOrAServerHasBeenQuiet`) check counters, events, the `after` parameter, unknown servers (404), the "not recorded" answer, and that GET on an action path still gives 405. The list below was written before them.
+`fullMembersEndpointRejectsUnknownServersAndServersWithoutGossip` checks that the complete-member-list endpoint gives 404 for an unknown server and 502 for one without the plugin, and that a POST to it is refused. The two activity endpoint tests (`activityEndpointServesAServersSocketActivityAndOnlyNewEvents` and `activityEndpointSaysSoWhenNothingIsRecordedOrAServerHasBeenQuiet`) check counters, events, the `after` parameter, unknown servers (404), the "not recorded" answer, and that GET on an action path still gives 405. The list below was written before them.
 
 | Test | What it verifies |
 | --- | --- |
@@ -75,7 +75,7 @@ The two activity endpoint tests (`activityEndpointServesAServersSocketActivityAn
 | closeReleasesThePort, aBusyPortIsReportedToTheCaller | The port is freed on close; a busy port throws `IOException`. |
 | parsesUiOptionsWithTheUiOnByDefault | `--ui-port` and `--no-ui` parsing, including invalid ports. |
 
-### SwarmGossipTest (12 methods)
+### SwarmGossipTest (13 methods)
 
 | Test | What it verifies |
 | --- | --- |
@@ -89,6 +89,7 @@ The two activity endpoint tests (`activityEndpointServesAServersSocketActivityAn
 | restartedServerGetsANewBootIdAndRejoinsTheSwarm | A restarted server has a new boot ID, rejoins, and its peers rate the new boot ID ALIVE. |
 | echoTrafficStillWorksWhileTheServersGossip | 300 echo requests succeed while the servers converge. |
 | consoleStartsAGossipSwarmAndSendsAGracefulLeave | A console session starts a gossip swarm, sends a graceful leave to one server, and cleans up its config. |
+| aSwarmLargerThanOneMembersPageIsReadWholeByFollowingTheCursor | With 40 gossip servers, one members page of 32 is cut short, and `SwarmSnapshot.fullMembers` follows the cursor to return all 40 members exactly once, each ALIVE. |
 | swarmSeededAtAnotherSwarmRejectsItAndKeepsItsOwnMembers | A server seeded at another swarm's server has its exchange turned away, and neither swarm lists the other's members. |
 
 ## Running the tests

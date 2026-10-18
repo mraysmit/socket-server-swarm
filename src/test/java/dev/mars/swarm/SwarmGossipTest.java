@@ -261,6 +261,33 @@ class SwarmGossipTest {
         }
     }
 
+    @Test
+    @Timeout(120)
+    void aSwarmLargerThanOneMembersPageIsReadWholeByFollowingTheCursor() throws Exception {
+        requirePlugin();
+        int size = 40;
+        try (var manager = new SwarmManager(List.of(PLUGIN), GossipSettings.fast())) {
+            var endpoints = manager.start("wide", size);
+            var first = endpoints.getFirst();
+            await("server 001 rates all " + size + " members ALIVE", () ->
+                    ((Number) ((Map<?, ?>) status(manager, first).get("assessments")).get("ALIVE")).intValue() >= size);
+
+            @SuppressWarnings("unchecked")
+            var page = (Map<String, Object>) manager.execute(first, "gossip", Map.of("operation", "members", "limit", 32)).result();
+            assertNotNull(page.get("nextCursor"), "One page of 32 cannot hold " + size + " members");
+
+            var whole = SwarmSnapshot.fullMembers(manager, first);
+            assertEquals(Boolean.TRUE, whole.get("complete"));
+            assertTrue(((Number) whole.get("pages")).intValue() >= 2);
+            @SuppressWarnings("unchecked")
+            var rows = (List<Map<String, Object>>) whole.get("members");
+            var ids = new java.util.HashSet<String>();
+            rows.forEach(row -> ids.add((String) row.get("serverId")));
+            assertEquals(size, ids.size(), "Every member appears exactly once across the pages");
+            assertTrue(rows.stream().allMatch(row -> "ALIVE".equals(row.get("assessment"))));
+        }
+    }
+
     /** Adds an extra seed to the generated config, as it stands just before a server reads it. */
     private static void addSeed(String serverId, String seed) {
         try {

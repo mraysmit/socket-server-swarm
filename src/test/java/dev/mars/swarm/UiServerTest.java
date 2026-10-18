@@ -182,6 +182,19 @@ class UiServerTest {
     }
 
     @Test
+    void fullMembersEndpointRejectsUnknownServersAndServersWithoutGossip() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            manager.start("solo", 1);
+            assertEquals(404, get(ui, "/api/servers/solo-Server-009/members").statusCode());
+            var noGossip = get(ui, "/api/servers/solo-Server-001/members");
+            assertEquals(502, noGossip.statusCode(), "The echo-only server has no gossip instruction");
+            assertFalse(Json.read(noGossip.body()).get("ok").asBoolean());
+            assertEquals(404, post(ui, "/api/servers/solo-Server-001/members", origin(ui), "1").statusCode(),
+                    "Members is read-only, so a POST to it is not an action");
+        }
+    }
+
+    @Test
     void closeReleasesThePort() throws Exception {
         int port;
         try (var manager = new SwarmManager()) {
