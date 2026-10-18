@@ -24,6 +24,12 @@
         </dependency>
     </dependencies>
     <build>
+        <resources>
+            <resource>
+                <directory>ui</directory>
+                <targetPath>ui</targetPath>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -34,6 +40,12 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.4</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <!-- Test servers must not announce themselves on the real network. -->
+                        <dev.mars.announce>false</dev.mars.announce>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>

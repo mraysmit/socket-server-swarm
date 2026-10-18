@@ -23,17 +23,24 @@ public final class SwarmMain {
               quit                             Stop every swarm and exit
             """;
 
+    static final String USAGE = "Usage: SwarmMain [--plugins-dir <directory>]... [--ui-port <port>] [--no-ui]";
+
+    /** Command-line settings; the UI is on by default at {@link UiServer#DEFAULT_PORT}. */
+    record Options(java.util.List<Path> pluginDirectories, boolean uiEnabled, int uiPort) { }
+
     public static void main(String[] args) throws IOException {
         if (args.length == 1 && args[0].equals("--help")) {
-            System.out.println("Usage: SwarmMain [--plugins-dir <directory>]...");
+            System.out.println(USAGE);
             System.out.print(HELP);
             return;
         }
-        var manager = new SwarmManager(parsePluginDirectories(args));
+        var options = parseOptions(args);
+        var manager = new SwarmManager(options.pluginDirectories());
         var shutdown = shutdownHook(manager);
         Runtime.getRuntime().addShutdownHook(shutdown);
         try (manager;
-             var input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
+             var input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+             var ui = startUi(manager, options)) {
             runConsole(manager, input, new PrintWriter(System.out, true));
         } finally {
             try { Runtime.getRuntime().removeShutdownHook(shutdown); }
@@ -47,16 +54,52 @@ public final class SwarmMain {
         });
     }
 
-    static java.util.List<Path> parsePluginDirectories(String... args) {
-        var folders = new java.util.ArrayList<Path>();
-        for (int i = 0; i < args.length; i++) {
-            if (!args[i].equals("--plugins-dir") || i + 1 == args.length
-                    || args[i + 1].startsWith("--") || args[i + 1].isBlank()) {
-                throw new IllegalArgumentException("Usage: SwarmMain [--plugins-dir <directory>]...");
-            }
-            folders.add(Path.of(args[++i]));
+    /** A busy port must not stop the harness, so the UI is skipped with a message instead. */
+    private static UiServer startUi(SwarmManager manager, Options options) {
+        if (!options.uiEnabled()) { return null; }
+        try {
+            var ui = new UiServer(manager, options.uiPort());
+            System.out.println("Swarm UI | http://localhost:" + ui.port() + "/");
+            return ui;
+        } catch (IOException | RuntimeException e) {
+            System.out.println("Swarm UI not started on port " + options.uiPort() + ": " + e.getMessage()
+                    + " (use --ui-port <port> or --no-ui)");
+            return null;
         }
-        return java.util.List.copyOf(folders);
+    }
+
+    static java.util.List<Path> parsePluginDirectories(String... args) {
+        return parseOptions(args).pluginDirectories();
+    }
+
+    static Options parseOptions(String... args) {
+        var folders = new java.util.ArrayList<Path>();
+        boolean ui = true;
+        int port = UiServer.DEFAULT_PORT;
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--no-ui" -> ui = false;
+                case "--ui-port" -> port = uiPort(value(args, i++));
+                case "--plugins-dir" -> folders.add(Path.of(value(args, i++)));
+                default -> throw new IllegalArgumentException(USAGE);
+            }
+        }
+        return new Options(java.util.List.copyOf(folders), ui, port);
+    }
+
+    private static String value(String[] args, int option) {
+        if (option + 1 == args.length || args[option + 1].startsWith("--") || args[option + 1].isBlank()) {
+            throw new IllegalArgumentException(USAGE);
+        }
+        return args[option + 1];
+    }
+
+    private static int uiPort(String text) {
+        try {
+            int port = Integer.parseInt(text);
+            if (port >= 0 && port <= 65535) { return port; }
+        } catch (NumberFormatException ignored) { /* reported below */ }
+        throw new IllegalArgumentException("UI port must be an integer from 0 to 65535");
     }
 
     static void runConsole(SwarmManager manager, BufferedReader input, PrintWriter output) throws IOException {

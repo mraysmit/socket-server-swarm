@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Swarm Observatory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: swarm list | live graph | server inspector, event log and design notes below. Truth is drawn on the node, opinion is drawn as a badge. */
+:root{
+  --bg:#eaeef2; --panel:#fafbfc; --ink:#14202b; --mute:#566676; --line:#d0d8df; --soft:#e2e8ee;
+  --accent:#2456d6; --accent-ink:#ffffff;
+  --ok:#0f7a50; --warn:#a35a00; --bad:#c0302c; --gone:#6f7e8c;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
+  --accent:#7aa2ff; --accent-ink:#0c151e;
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
+  --accent:#7aa2ff; --accent-ink:#0c151e;
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; color-scheme:dark;}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;
+  padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:18px 40px}
+button,select{font:inherit;color:inherit}
+h1,h2,h3,p{margin:0}
+.wrap{max-width:1500px;margin-inline:auto;display:flex;flex-direction:column;gap:16px}
+.mono{font-family:var(--mono)}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;justify-content:space-between}
+.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.tag{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:2px 6px}
+.clock{font-family:var(--mono);font-size:12px;color:var(--mute)}
+.bar-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 11px;cursor:pointer;line-height:1.2}
+.btn:hover{border-color:var(--accent)}
+.btn:focus-visible,.chip:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.danger:hover{border-color:var(--bad);color:var(--bad)}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.btn[disabled]:hover{border-color:var(--line);color:inherit}
+select{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.sep{width:1px;height:22px;background:var(--line)}
+.banner{border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:6px 10px;font-size:13px}
+
+/* three-column app */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr) 350px;gap:16px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
+.card h2{font-size:11px;font-family:var(--mono);font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.card>header{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px}
+
+/* swarm list */
+.swarms{display:flex;flex-direction:column}
+.swarm{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.swarm:last-child{border-bottom:0}
+.swarm .hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.swarm h3{font-size:14px;font-weight:600}
+.conv{font-family:var(--mono);font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+.meter{height:5px;background:var(--soft);border-radius:3px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.chips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:var(--mono);font-size:12px;cursor:pointer}
+.chip.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.chip .dot{width:8px;height:8px;border-radius:50%;border:2px solid var(--ok)}
+.chip.st-down .dot{border-color:var(--bad);border-style:dashed}
+.chip.st-left .dot{border-color:var(--gone);border-style:dashed}
+.chip.st-start .dot{border-color:var(--line);border-style:dotted}
+.hint{padding:12px 14px;color:var(--mute);font-size:12px;border-top:1px solid var(--line)}
+
+/* stage */
+.stage{padding:0;overflow:hidden}
+svg{display:block;width:100%;height:auto}
+.slabel{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;fill:var(--mute)}
+.node{cursor:pointer;outline:none}
+.node .body{fill:var(--panel);stroke-width:3}
+.node.st-up .body{stroke:var(--ok)}
+.node.st-down .body{stroke:var(--bad);stroke-dasharray:5 4}
+.node.st-left .body{stroke:var(--gone);stroke-dasharray:2 5;stroke-linecap:round}
+.node.st-start .body{stroke:var(--line);stroke-dasharray:1 5;stroke-linecap:round}
+.node.st-down .nid,.node.st-left .nid,.node.st-start .nid{fill:var(--mute)}
+.nid{font-family:var(--mono);font-size:14px;font-weight:500;fill:var(--ink);text-anchor:middle}
+.arcbg{fill:none;stroke:var(--soft);stroke-width:4}
+.arc{fill:none;stroke:var(--accent);stroke-width:4;stroke-linecap:butt}
+.selring{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:3 3;display:none}
+.node.sel .selring,.node:focus-visible .selring{display:block}
+.grp{font-family:var(--mono);font-size:11px;fill:var(--mute);text-anchor:middle}
+.badge{stroke:var(--panel);stroke-width:2}
+.b-ALIVE{fill:var(--ok)} .b-SUSPECT{fill:var(--warn)} .b-DEAD{fill:var(--bad)} .b-LEFT{fill:var(--gone)} .b-NONE{fill:var(--panel);stroke:var(--mute);stroke-width:1.5}
+.eye{stroke-width:1.5;opacity:.45;fill:none}
+.eye.ALIVE{stroke:var(--ok)} .eye.SUSPECT{stroke:var(--warn);stroke-dasharray:4 4} .eye.DEAD{stroke:var(--bad);stroke-dasharray:2 5} .eye.LEFT{stroke:var(--gone);stroke-dasharray:1 6}
+.pulse{fill:var(--accent)}
+.pulse.rep{opacity:.65}
+.pulse.drop{fill:var(--bad)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;padding:10px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--mute)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend svg{width:18px;height:18px;flex:none}
+
+/* inspector */
+.insp-head{padding:14px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--line)}
+.insp-head .id{font-family:var(--mono);font-size:15px;font-weight:500;word-break:break-all}
+.pillrow{display:flex;gap:6px;flex-wrap:wrap}
+.pill{font-family:var(--mono);font-size:11px;letter-spacing:.04em;border-radius:4px;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
+.p-ALIVE,.p-RUNNING,.p-COMPLETED{color:var(--ok)} .p-SUSPECT,.p-LEAVING,.p-DISSEMINATING,.p-STARTING{color:var(--warn)}
+.p-DEAD,.p-STOPPED{color:var(--bad)} .p-LEFT,.p-QUIESCED,.p-NOT_REQUESTED{color:var(--gone)}
+dl.facts{margin:0;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;border-bottom:1px solid var(--line)}
+dl.facts dt{color:var(--mute)} dl.facts dd{margin:0;font-family:var(--mono);font-size:12px;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.actions{padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--line)}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);text-align:left;padding:8px 14px;border-bottom:1px solid var(--line)}
+td{padding:6px 14px;border-bottom:1px solid var(--soft);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.m{font-family:var(--mono)} td.r,th.r{text-align:right}
+.old{color:var(--mute)}
+
+/* log */
+.log{list-style:none;margin:0;padding:0;max-height:240px;overflow:auto;font-family:var(--mono);font-size:12px}
+.log li{display:grid;grid-template-columns:64px 96px 1fr;gap:10px;padding:5px 14px;border-bottom:1px solid var(--soft)}
+.log .t{color:var(--mute)}
+.log .k{text-transform:uppercase;letter-spacing:.05em}
+.k-converged,.k-started,.k-recovered,.k-restarted{color:var(--ok)} .k-suspect,.k-partition,.k-leaving{color:var(--warn)}
+.k-dead,.k-stopped{color:var(--bad)} .k-left{color:var(--gone)}
+
+/* notes */
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0}
+.notes div{padding:14px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.notes b{display:block;font-weight:600;margin-bottom:4px}
+.notes p{color:var(--mute);font-size:13px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+@media (max-width:1180px){.app{grid-template-columns:minmax(0,1fr)} .swarms{flex-direction:row;flex-wrap:wrap} .swarm{flex:1 1 220px;border-bottom:0;border-right:1px solid var(--line)}}
+@media (prefers-reduced-motion:reduce){.meter i{transition:none}}
+body{margin:0}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="top">
+    <div class="brand">
+      <h1>Swarm Observatory</h1>
+      <span class="tag">Mockup · simulated swarm</span>
+      <span class="clock" id="clock">t+0s</span>
+    </div>
+    <div class="bar-controls" role="toolbar" aria-label="Simulation controls">
+      <button class="btn" id="pause" aria-pressed="false">Pause</button>
+      <label class="sr" for="speed">Speed</label>
+      <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+      <span class="sep"></span>
+      <button class="btn" id="partition" aria-pressed="false" title="Block exchanges between two halves of every swarm">Partition</button>
+      <button class="btn" id="newswarm" title="console: start &lt;name&gt; 3">New swarm</button>
+      <button class="btn" id="addserver" title="Start one more server in the selected swarm">Add server</button>
+    </div>
+  </div>
+  <div class="banner" id="banner" hidden>Partition active: servers marked A and B cannot exchange. Watch suspicion rise, then lift the partition to see views converge again.</div>
+
+  <div class="app">
+    <aside class="card" aria-label="Swarms">
+      <header><h2>Swarms</h2></header>
+      <div class="swarms" id="swarms"></div>
+      <p class="hint">Demo timings: round 1 s, suspect after 7 s, dead after 16 s. Real values are set in the gossip config.</p>
+    </aside>
+
+    <main class="card stage" aria-label="Swarm graph">
+      <svg id="stage" viewBox="0 0 1000 640" role="img" aria-label="Live graph of server swarms and gossip exchanges">
+        <g id="g-under"></g><g id="g-pulses"></g><g id="g-nodes"></g>
+      </svg>
+      <div class="legend">
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--ok)" stroke-width="3"/></svg>Running</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--bad)" stroke-width="3" stroke-dasharray="4 3"/></svg>Stopped</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--gone)" stroke-width="3" stroke-dasharray="1.5 4" stroke-linecap="round"/></svg>Left</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="30 44" transform="rotate(-90 9 9)"/></svg>Share of live peers this server sees</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="5" fill="var(--warn)"/></svg>Badge: how the selected server rates it</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--accent)"/></svg>Exchange in flight</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--bad)"/></svg>Exchange failed</span>
+      </div>
+    </main>
+
+    <aside class="card" aria-label="Server inspector">
+      <div id="insp-head"></div>
+      <div id="insp-facts"></div>
+      <div id="insp-actions"></div>
+      <div class="tablewrap" id="insp-table"></div>
+    </aside>
+  </div>
+
+  <section class="card" aria-label="Event log">
+    <header><h2>Events</h2><span class="clock">newest first</span></header>
+    <ol class="log" id="log"></ol>
+  </section>
+
+  <section class="card" aria-label="Design guidelines">
+    <header><h2>Design guidelines</h2></header>
+    <div class="notes">
+      <div><b>Show what is true, then what is believed</b><p>A node's outline is its real state. The badge on every other node is only the selected server's opinion. Disagreement between the two is the thing to look at.</p></div>
+      <div><b>State never relies on color</b><p>Each state has a color, a stroke pattern and a word: solid, dashed, dotted. It stays readable in grayscale and for color-blind viewers.</p></div>
+      <div><b>Motion is traffic, not decoration</b><p>Dots appear only when a real exchange happens, and failed ones turn red and stop short. Pause and speed controls are always within reach.</p></div>
+      <div><b>One vocabulary with the plugin</b><p>ALIVE, SUSPECT, DEAD, LEFT, bootId, heartbeat and departure states use the plugin's own names, so what you read here matches what the logs and console say.</p></div>
+      <div><b>Overview, then one server</b><p>Swarm convergence first, then a single server's full member table. Never mix several viewpoints in one table.</p></div>
+      <div><b>Label simulated values honestly</b><p>Timings and percentages are measured from the run on screen. No claimed guarantees, and demo thresholds are stated.</p></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(()=>{
+const NS='http://www.w3.org/2000/svg';
+const $=s=>document.querySelector(s);
+const CFG={round:1000,suspect:7000,dead:16000,retain:32000,travel:650,fanout:2,leaveBudget:2500};
+let T=0,nodes=[],pulses=[],sel=null,paused=false,speed=1,partition=false,logs=[],portN=0;
+const announced=new Set(),convState={};
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const hex=()=>Math.random().toString(16).slice(2,10).padEnd(8,'0');
+const pad=n=>String(n).padStart(3,'0');
+const keyOf=(id,boot)=>id+'|'+boot;
+const byId=id=>nodes.find(n=>n.id===id);
+const swarms=()=>[...new Set(nodes.map(n=>n.swarm))];
+const ev=(kind,msg)=>{logs.unshift({t:T,kind,msg});if(logs.length>80)logs.pop();};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function mk(swarm,n,delay){
+  const o={id:`${swarm}-Server-${pad(n)}`,swarm,n,boot:hex(),hb:0,started:false,up:false,left:false,startAt:T+delay,
+    main:50100+(portN+=2),view:new Map(),tomb:new Map(),seeds:[`${swarm}-Server-${pad(n===1?2:1)}`],
+    rounds:0,inbound:0,failed:0,isolated:true,dep:'NOT_REQUESTED',depEnd:0,nextRound:0,group:n%2,x:0,y:0};
+  o.admin=o.main+1;nodes.push(o);return o;
+}
+const state=o=>!o.started?'start':o.left?'left':!o.up?'down':'up';
+const worker=o=>!o.started?'STARTING':!o.up?'STOPPED':o.left?(T<o.depEnd?'LEAVING':'QUIESCED'):'RUNNING';
+const selfKey=o=>keyOf(o.id,o.boot);
+const selfE=o=>o.view.get(selfKey(o));
+function putSelf(o){o.view.set(selfKey(o),{id:o.id,boot:o.boot,hb:o.hb,adv:T,left:false,as:'ALIVE'});}
+function assess(e){if(e.left)return'LEFT';const a=T-e.adv;return a>CFG.dead?'DEAD':a>CFG.suspect?'SUSPECT':'ALIVE';}
+const batch=o=>[...o.view.values()].map(e=>({id:e.id,boot:e.boot,hb:e.hb,left:e.left}));
+
+function merge(to,b,direct){
+  const sk=selfKey(to);
+  for(const e of b){
+    const k=keyOf(e.id,e.boot);if(k===sk)continue;
+    const ex=to.view.get(k);
+    if(!ex){const tb=to.tomb.get(k);if(tb!==undefined&&e.hb<=tb)continue;
+      to.view.set(k,{id:e.id,boot:e.boot,hb:e.hb,adv:T,left:e.left,as:'ALIVE'});}
+    else if(e.left&&!ex.left){ex.left=true;ex.adv=T;}
+    else if(!ex.left&&e.hb>ex.hb){ex.hb=e.hb;ex.adv=T;}
+  }
+  if(direct){const d=to.view.get(direct);if(d&&!d.left)d.adv=T;}
+}
+function send(from,to){
+  const drop=!to.up||(partition&&from.group!==to.group);
+  pulses.push({from,to,t0:T,t1:T+CFG.travel,drop,reply:false,batch:batch(from)});
+}
+function pickTargets(o){
+  const ids=new Map();
+  for(const e of o.view.values()){if(e.id===o.id||e.left)continue;
+    const a=assess(e),p=ids.get(e.id);if(!p||a==='ALIVE')ids.set(e.id,a);}
+  for(const s of o.seeds)if(s!==o.id&&!ids.has(s))ids.set(s,'SEED');
+  const ok=[],rec=[];
+  for(const [id,a] of ids)(a==='ALIVE'||a==='SEED'?ok:rec).push(id);
+  ok.sort(()=>Math.random()-.5);
+  const out=ok.slice(0,CFG.fanout);
+  if(rec.length&&Math.random()<.34){const r=rec[Math.floor(Math.random()*rec.length)];if(out.length>=CFG.fanout)out[CFG.fanout-1]=r;else out.push(r);}
+  return out.map(byId).filter(Boolean);
+}
+function deliver(p){
+  if(p.drop){if(!p.reply)p.from.failed++;return;}
+  if(!p.reply){
+    const to=p.to;
+    if(!to.up){p.from.failed++;return;}
+    merge(to,p.batch,null);to.inbound++;to.isolated=false;
+    pulses.push({from:to,to:p.from,t0:T,t1:T+CFG.travel,reply:true,drop:false,batch:batch(to),direct:selfKey(to)});
+  }else if(p.to.up){merge(p.to,p.batch,p.direct);p.to.isolated=false;}
+}
+function know(o){
+  if(!o.up||o.left||!o.started)return null;
+  const live=nodes.filter(m=>m.swarm===o.swarm&&m.started&&m.up&&!m.left);
+  let c=0;for(const m of live){const e=o.view.get(selfKey(m));if(e&&assess(e)==='ALIVE')c++;}
+  return{c,n:live.length};
+}
+function conv(s){
+  const ks=nodes.filter(n=>n.swarm===s).map(know).filter(Boolean);
+  if(!ks.length)return null;
+  return ks.reduce((a,k)=>a+k.c/k.n,0)/ks.length;
+}
+
+let lastConv=0;
+function step(dt){
+  T+=dt;
+  for(const o of nodes){
+    if(!o.started&&T>=o.startAt){o.started=true;o.up=true;putSelf(o);o.nextRound=T+rnd(100,500);ev('started',`${o.id} listening on :${o.main}`);}
+    if(!o.up)continue;
+    if(!o.left&&T>=o.nextRound){
+      o.rounds++;o.hb++;const s=selfE(o);s.hb=o.hb;s.adv=T;
+      for(const t of pickTargets(o))send(o,t);
+      o.nextRound=T+CFG.round*rnd(.8,1.2);
+    }
+    if(o.left&&o.dep==='DISSEMINATING'&&T>=o.depEnd)o.dep='COMPLETED';
+    for(const [k,e] of o.view){
+      if(e.id===o.id)continue;
+      if(T-e.adv>CFG.retain){o.tomb.set(k,e.hb);o.view.delete(k);continue;}
+      const a=assess(e);
+      if(a!==e.as){
+        const prev=e.as;e.as=a;const cur=byId(e.id);
+        if(cur&&cur.boot!==e.boot)continue;
+        const tag=k+'|'+a;
+        if((a==='SUSPECT'||a==='DEAD'||a==='LEFT')&&!announced.has(tag)){
+          announced.add(tag);announced.delete(k+'|REC');
+          ev(a==='LEFT'?'left':a.toLowerCase(),a==='LEFT'?`${e.id} departed; ${o.id} was first to record it`:`${o.id} now rates ${e.id} ${a}`);
+        }else if(a==='ALIVE'&&(prev==='SUSPECT'||prev==='DEAD')&&!announced.has(k+'|REC')){
+          announced.add(k+'|REC');announced.delete(k+'|SUSPECT');announced.delete(k+'|DEAD');
+          ev('recovered',`${o.id} sees ${e.id} ALIVE again`);
+        }
+      }
+    }
+  }
+  for(const p of pulses)if(T>=p.t1){p.done=true;deliver(p);}
+  pulses=pulses.filter(p=>{if(p.done){if(p.el)p.el.remove();return false;}return true;});
+  if(T-lastConv>500){lastConv=T;
+    for(const s of swarms()){
+      const c=conv(s),n=nodes.filter(m=>m.swarm===s&&m.started&&m.up&&!m.left).length;
+      if(c!==null&&c>.999&&!convState[s]&&n>1){convState[s]=true;ev('converged',`${s}: all ${n} live servers see each other`);}
+      else if(c!==null&&c<.999)convState[s]=false;
+    }}
+}
+
+/* actions */
+function leave(o){
+  if(!o.up||o.left)return;
+  o.left=true;const s=selfE(o);s.left=true;s.adv=T;o.dep='DISSEMINATING';o.depEnd=T+CFG.leaveBudget;
+  ev('leaving',`${o.id} published LEFT to ${Math.min(7,o.view.size-1)} peers`);
+  for(const e of o.view.values()){const t=byId(e.id);if(t&&t!==o&&!e.left)send(o,t);}
+}
+function stop(o){if(!o.up)return;o.up=false;ev('stopped',`${o.id} stopped without leaving`);}
+function restart(o){
+  o.boot=hex();o.hb=0;o.up=true;o.left=false;o.dep='NOT_REQUESTED';o.view=new Map();o.tomb=new Map();
+  o.rounds=0;o.isolated=true;putSelf(o);o.nextRound=T+300;
+  ev('restarted',`${o.id} restarted with new bootId ${o.boot.slice(0,4)}`);
+}
+function addServer(){
+  const s=sel?sel.swarm:swarms()[0];const ns=nodes.filter(n=>n.swarm===s);
+  if(ns.length>=8)return;
+  const n=mk(s,Math.max(...ns.map(x=>x.n))+1,0);n.group=n.n%2;
+}
+function newSwarm(){
+  const names=['gamma','delta','epsilon','zeta'].filter(x=>!swarms().includes(x));
+  if(!names.length||swarms().length>=4)return;
+  [0,500,1000].forEach((d,i)=>mk(names[0],i+1,d));
+  sel=byId(`${names[0]}-Server-001`);
+}
+function setPartition(on){
+  partition=on;
+  for(const s of swarms()){const ns=nodes.filter(n=>n.swarm===s);ns.forEach((n,i)=>n.group=i<Math.ceil(ns.length/2)?0:1);}
+  ev('partition',on?'partition on: halves of each swarm cannot exchange':'partition lifted');
+}
+
+/* layout and render */
+function layout(){
+  const ss=swarms(),S=ss.length,cols=S<=1?1:2,rows=Math.ceil(S/cols),cw=1000/cols,ch=640/rows,labels=[];
+  ss.forEach((s,si)=>{
+    const cx=(si%cols+.5)*cw,cy=(Math.floor(si/cols)+.5)*ch+(rows>1?14:10);
+    const ns=nodes.filter(n=>n.swarm===s),m=ns.length;
+    const R=m<2?0:Math.max(40,Math.min(cw,ch)/2-(rows>1?72:80))*(m===2?.55:1);
+    ns.forEach((n,k)=>{const a=-Math.PI/2+2*Math.PI*k/m;n.x=cx+R*Math.cos(a);n.y=cy+R*Math.sin(a);});
+    labels.push({s,x:(si%cols)*cw+24,y:Math.floor(si/cols)*ch+34});
+  });
+  return labels;
+}
+function setHTML(el,html){
+  if(el._h===html)return;el._h=html;
+  const ae=document.activeElement,key=ae&&el.contains(ae)?ae.dataset.key:null;
+  el.innerHTML=html;
+  if(key){const t=el.querySelector(`[data-key="${key}"]`);if(t)t.focus({preventScroll:true});}
+}
+const C=2*Math.PI*33;
+function renderGraph(){
+  const labels=layout();let under='',top='';
+  for(const l of labels){const c=conv(l.s);under+=`<text class="slabel" x="${l.x}" y="${l.y}">${esc(l.s)} · ${nodes.filter(n=>n.swarm===l.s).length} servers${c===null?'':' · '+Math.round(c*100)+'%'}</text>`;}
+  if(sel&&sel.up&&sel.started){
+    for(const o of nodes){if(o===sel)continue;const e=sel.view.get(selfKey(o));
+      if(e)under+=`<line class="eye ${assess(e)}" x1="${sel.x}" y1="${sel.y}" x2="${o.x}" y2="${o.y}"/>`;}
+  }
+  for(const o of nodes){
+    const st=state(o),k=know(o),f=k?k.c/k.n:0;
+    let badge='';
+    if(sel&&sel!==o&&sel.started&&sel.up){const e=sel.view.get(selfKey(o));badge=`<circle class="badge b-${e?assess(e):'NONE'}" cx="22" cy="-22" r="7"/>`;}
+    const stName={up:'running',down:'stopped',left:'left',start:'starting'}[st];
+    top+=`<g class="node st-${st}${sel===o?' sel':''}" data-id="${o.id}" data-key="n-${o.id}" tabindex="0" role="button" aria-label="${o.id}, ${stName}${k?', sees '+k.c+' of '+k.n+' live servers':''}" transform="translate(${o.x.toFixed(1)} ${o.y.toFixed(1)})">
+      <title>${o.id} · ${stName}</title>
+      <circle class="selring" r="42"/>
+      <circle class="arcbg" r="33"/>
+      <circle class="arc" r="33" stroke-dasharray="${(f*C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90)"/>
+      <circle class="body" r="26"/>
+      <text class="nid" y="5">${pad(o.n)}</text>${badge}
+      ${partition?`<text class="grp" y="56">${o.group?'B':'A'}</text>`:''}</g>`;
+  }
+  setHTML($('#g-under'),under);setHTML($('#g-nodes'),top);
+}
+function updatePulses(){
+  const layer=$('#g-pulses');
+  for(const p of pulses){
+    if(!p.el){p.el=document.createElementNS(NS,'circle');p.el.setAttribute('r',p.reply?3:4.5);
+      p.el.setAttribute('class','pulse'+(p.reply?' rep':'')+(p.drop?' drop':''));layer.appendChild(p.el);}
+    let f=Math.max(0,Math.min(1,(T-p.t0)/(p.t1-p.t0)));
+    const g=(reduced?.5:f)*(p.drop?.55:1);
+    p.el.setAttribute('cx',(p.from.x+(p.to.x-p.from.x)*g).toFixed(1));
+    p.el.setAttribute('cy',(p.from.y+(p.to.y-p.from.y)*g).toFixed(1));
+    if(p.drop)p.el.setAttribute('opacity',Math.max(0,1-f*1.3).toFixed(2));
+  }
+}
+function renderSwarms(){
+  const html=swarms().map(s=>`<section class="swarm"><div class="hd"><h3>${esc(s)}</h3><span class="conv" data-conv="${s}"></span></div>
+    <div class="meter"><i data-bar="${s}"></i></div>
+    <ul class="chips">${nodes.filter(n=>n.swarm===s).map(n=>`<li><button class="chip st-${state(n)}${sel===n?' on':''}" data-act="select" data-id="${n.id}" data-key="c-${n.id}" aria-pressed="${sel===n}" title="${n.id}"><span class="dot"></span>${pad(n.n)}</button></li>`).join('')}</ul></section>`).join('');
+  setHTML($('#swarms'),html);
+  for(const s of swarms()){const c=conv(s),v=c===null?0:Math.round(c*100);
+    const a=$(`[data-conv="${s}"]`),b=$(`[data-bar="${s}"]`);
+    if(a)a.textContent=c===null?'—':v+'% in sync';if(b)b.style.width=v+'%';}
+}
+function pill(t){return `<span class="pill p-${t}">${t.replace('_',' ')}</span>`;}
+function renderPanel(){
+  const o=sel;if(!o)return;
+  setHTML($('#insp-head'),`<div class="insp-head"><h2 class="mono" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:500">Server</h2><div class="id">${o.id}</div><div class="pillrow">${pill(worker(o))}${pill(o.dep)}</div></div>`);
+  const k=know(o);
+  setHTML($('#insp-facts'),`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Boot ID</dt><dd>${o.boot}</dd><dt>Heartbeat</dt><dd>${o.hb}</dd><dt>Rounds</dt><dd>${o.rounds}</dd><dt>Exchanges received</dt><dd>${o.inbound}</dd><dt>Failed outbound</dt><dd>${o.failed}</dd><dt>Isolated</dt><dd>${o.started&&o.isolated?'true':'false'}</dd><dt>Sees live peers</dt><dd>${k?k.c+' of '+k.n:'—'}</dd></dl>`);
+  const canLeave=o.up&&!o.left,canStop=o.up,canRestart=o.started&&(!o.up||o.left);
+  setHTML($('#insp-actions'),`<div class="actions"><button class="btn" data-act="leave" data-key="a-leave" ${canLeave?'':'disabled'} title="gossip operation: leave">Leave gracefully</button><button class="btn danger" data-act="stop" data-key="a-stop" ${canStop?'':'disabled'} title="Close the server without publishing LEFT">Stop</button><button class="btn" data-act="restart" data-key="a-restart" ${canRestart?'':'disabled'} title="Start again with a new boot ID">Restart</button></div>`);
+  const rows=[...o.view.values()].sort((a,b)=>a.id.localeCompare(b.id)||a.boot.localeCompare(b.boot));
+  setHTML($('#insp-table'),`<table><thead><tr><th>Member</th><th>Rated</th><th class="r">Beat</th><th class="r">Age</th></tr></thead><tbody>${
+    rows.map(e=>{const a=assess(e),cur=byId(e.id),old=cur&&cur.boot!==e.boot;
+      return `<tr class="${old?'old':''}"><td class="m">${e.id.split('-Server-')[0].slice(0,1)}·${e.id.slice(-3)} <span class="old">${e.boot.slice(0,4)}${old?' old':''}</span></td><td>${pill(a)}</td><td class="r">${e.hb}</td><td class="r">${e.id===o.id?'self':Math.floor((T-e.adv)/1000)+'s'}</td></tr>`;}).join('')||'<tr><td colspan="4" class="old">No members known yet</td></tr>'}</tbody></table>`);
+}
+function renderLog(){
+  setHTML($('#log'),logs.map(l=>`<li><span class="t">t+${(l.t/1000).toFixed(1)}s</span><span class="k k-${l.kind}">${l.kind}</span><span>${esc(l.msg)}</span></li>`).join(''));
+}
+function renderAll(){
+  $('#clock').textContent=`t+${(T/1000).toFixed(0)}s`;
+  renderGraph();renderSwarms();renderPanel();renderLog();
+  $('#banner').hidden=!partition;$('#partition').setAttribute('aria-pressed',partition);
+  $('#pause').setAttribute('aria-pressed',paused);$('#pause').textContent=paused?'Resume':'Pause';
+}
+
+/* events */
+function select(id){sel=byId(id)||sel;renderAll();}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
+  const a=b.dataset.act;
+  if(a==='select')select(b.dataset.id);
+  else if(a==='leave'&&sel){leave(sel);renderAll();}
+  else if(a==='stop'&&sel){stop(sel);renderAll();}
+  else if(a==='restart'&&sel){restart(sel);renderAll();}
+});
+const stage=$('#stage');
+stage.addEventListener('pointerdown',e=>{const g=e.target.closest('.node');if(g)select(g.dataset.id);});
+stage.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const g=e.target.closest('.node');if(g){e.preventDefault();select(g.dataset.id);}}});
+$('#pause').addEventListener('click',()=>{paused=!paused;renderAll();});
+$('#speed').addEventListener('change',e=>{speed=+e.target.value;});
+$('#partition').addEventListener('click',()=>{setPartition(!partition);renderAll();});
+$('#newswarm').addEventListener('click',()=>{newSwarm();renderAll();});
+$('#addserver').addEventListener('click',()=>{addServer();renderAll();});
+
+/* boot: two swarms starting up, pre-run so the first frame is already converged */
+[0,500,1000,1600,2200].forEach((d,i)=>mk('alpha',i+1,d));
+[800,1300,1900].forEach((d,i)=>mk('beta',i+1,d));
+sel=byId('alpha-Server-002');
+for(let i=0;i<170;i++)step(100);
+pulses=[];
+let last=performance.now(),lastR=0;
+function frame(ts){
+  const dt=Math.min(ts-last,100);last=ts;
+  if(!paused)step(dt*speed);
+  updatePulses();
+  if(ts-lastR>200){lastR=ts;renderAll();}
+  requestAnimationFrame(frame);
+}
+renderAll();updatePulses();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

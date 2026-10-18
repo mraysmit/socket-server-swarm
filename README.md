@@ -30,8 +30,7 @@ Enter these commands in the harness console, one at a time:
 ```text
 start alpha 3
 start beta 2
-listK PROCEED
-
+list
 status
 send alpha {"instruction":"echo","parameters":{"text":"Hello alpha"}}
 send beta {"instruction":"echo","parameters":{"text":"Hello beta"}}
@@ -94,6 +93,18 @@ Failures are counted and the first ten details are printed. `send` stops and
 reports an error if a server rejects a command or cannot be reached. This first
 version is an interactive harness; test failure is reported in its output.
 It does not supply a batch-mode exit code or performance benchmark guarantees.
+
+## Swarm UI
+
+The harness also starts a read-only HTTP endpoint on `http://localhost:8088/`. It
+serves the UI page and `GET /api/snapshot`, a JSON view of every swarm and server
+(ports, whether each is alive, and the gossip plugin's replies when the plugin is
+loaded). It listens on the loopback interface only and rejects other `Host` names.
+The page is currently a simulation and does not yet read the snapshot.
+
+Use `--ui-port <port>` to change the port, or `--no-ui` to turn the endpoint off.
+If the port is busy, the harness prints a message and continues without the UI.
+See [docs/swarm-ui-data-design.md](docs/swarm-ui-data-design.md).
 
 ## External Plugins
 

@@ -24,7 +24,8 @@ class SwarmConsoleTest {
         if (!java.nio.file.Files.exists(javaExecutable)) {
             javaExecutable = java.nio.file.Path.of(System.getProperty("java.home"), "bin", "java");
         }
-        var process = new ProcessBuilder(javaExecutable.toString(), "-cp",
+        // A separate JVM inherits no system properties, so it is told not to announce on the network as well.
+        var process = new ProcessBuilder(javaExecutable.toString(), "-Ddev.mars.announce=false", "-cp",
                 System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
                 ShutdownProbe.class.getName()).redirectErrorStream(true).start();
         try (var reader = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
@@ -35,6 +36,7 @@ class SwarmConsoleTest {
                 assertEquals(0, process.exitValue(), actual);
                 assertTrue(actual.contains("Shutdown hook probe | virtual=true | state=NEW"), actual);
                 assertTrue(actual.contains("ThreadPooledServer Closed."), "The shutdown hook must finish listener cleanup:\n" + actual);
+                assertFalse(actual.contains("Server announcement sent"), "The probe's server must not announce itself:\n" + actual);
                 var ports = Pattern.compile("Probe ports \\| main=(\\d+) \\| admin=(\\d+)").matcher(actual);
                 assertTrue(ports.find(), actual);
                 int main = Integer.parseInt(ports.group(1));

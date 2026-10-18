@@ -101,15 +101,21 @@ public final class SwarmManager implements AutoCloseable {
 
     public List<ServerStatus> status(String name) {
         var statuses = new ArrayList<ServerStatus>();
-        for (var endpoint : snapshot(name)) {
-            try {
-                String detail = adminStatus(endpoint);
-                statuses.add(new ServerStatus(endpoint, detail.equals("Server status: ALIVE"), detail));
-            } catch (IOException e) {
-                statuses.add(new ServerStatus(endpoint, false, e.getMessage()));
-            }
-        }
+        for (var endpoint : snapshot(name)) { statuses.add(statusOf(endpoint)); }
         return List.copyOf(statuses);
+    }
+
+    ServerStatus statusOf(ServerEndpoint endpoint) {
+        try {
+            String detail = adminStatus(endpoint);
+            return new ServerStatus(endpoint, detail.equals("Server status: ALIVE"), detail);
+        } catch (IOException e) {
+            return new ServerStatus(endpoint, false, e.getMessage());
+        }
+    }
+
+    CommandReply execute(ServerEndpoint endpoint, String instruction, Map<String, Object> parameters) throws IOException {
+        return client(endpoint).execute(UUID.randomUUID(), instruction, parameters);
     }
 
     public List<CommandReply> send(String name, String input) throws IOException {
