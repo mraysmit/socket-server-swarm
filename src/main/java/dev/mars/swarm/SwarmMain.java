@@ -25,7 +25,7 @@ public final class SwarmMain {
             """;
 
     static final String USAGE = "Usage: SwarmMain [--plugins-dir <directory>]... [--gossip | --gossip-fast]"
-            + " [--ui-port <port>] [--no-ui]";
+            + " [--gossip-option <key=value>]... [--ui-port <port>] [--no-ui]";
 
     /** Command-line settings; the UI is on by default at {@link UiServer#DEFAULT_PORT}. Gossip is off unless asked for. */
     record Options(java.util.List<Path> pluginDirectories, boolean uiEnabled, int uiPort, GossipSettings gossip) { }
@@ -82,9 +82,16 @@ public final class SwarmMain {
         boolean ui = true;
         int port = UiServer.DEFAULT_PORT;
         GossipSettings gossip = null;
+        var gossipOptions = new java.util.LinkedHashMap<String, String>();
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--no-ui" -> ui = false;
+                case "--gossip-option" -> {
+                    String pair = value(args, i++);
+                    int eq = pair.indexOf('=');
+                    if (eq < 1 || eq == pair.length() - 1) { throw new IllegalArgumentException("--gossip-option expects key=value, for example round.millis=2000"); }
+                    gossipOptions.put(pair.substring(0, eq).strip(), pair.substring(eq + 1).strip());
+                }
                 case "--gossip", "--gossip-fast" -> {
                     if (gossip != null) { throw new IllegalArgumentException(USAGE); }
                     gossip = args[i].equals("--gossip") ? GossipSettings.defaults() : GossipSettings.fast();
@@ -96,6 +103,12 @@ public final class SwarmMain {
         }
         if (gossip != null && folders.isEmpty()) {
             throw new IllegalArgumentException("--gossip needs --plugins-dir pointing at the gossip plugin");
+        }
+        if (!gossipOptions.isEmpty()) {
+            if (gossip == null) { throw new IllegalArgumentException("--gossip-option needs --gossip or --gossip-fast"); }
+            var merged = new java.util.LinkedHashMap<>(gossip.options());
+            merged.putAll(gossipOptions);
+            gossip = new GossipSettings(gossip.advertiseHost(), merged);
         }
         return new Options(java.util.List.copyOf(folders), ui, port, gossip);
     }

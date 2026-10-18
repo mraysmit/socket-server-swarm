@@ -2,7 +2,7 @@
 
 ## Overview
 
-The suite has 52 test methods (65 cases with parameterized inputs) in five JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 54 test methods (66 cases with parameterized inputs) in five JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
@@ -75,13 +75,15 @@ The suite has 52 test methods (65 cases with parameterized inputs) in five JUnit
 | closeReleasesThePort, aBusyPortIsReportedToTheCaller | The port is freed on close; a busy port throws `IOException`. |
 | parsesUiOptionsWithTheUiOnByDefault | `--ui-port` and `--no-ui` parsing, including invalid ports. |
 
-### SwarmGossipTest (13 methods)
+### SwarmGossipTest (15 methods)
 
 | Test | What it verifies |
 | --- | --- |
 | generatedConfigGivesEachServerItsSwarmAndSeedsPointAtTheFirstServer | Each server gets its swarm ID, servers 2 and up are seeded with the first server's real port, entries are removed on stop, and the file and property are removed on close. |
 | failedStartupForgetsTheSwarmsConfigAndNoGossipMeansNoProperty | A failed start leaves no config behind; without gossip the property is never set. |
 | settingsRejectHarnessOwnedAndBlankValues, parsesGossipOptions | `GossipSettings` and the `--gossip` and `--gossip-fast` options. |
+| swarmsLargerThanOneExchangeGetABiggerExchangeUnlessTheCallerSetsOne | A swarm of 32 keeps the plugin's default exchange; a swarm of 40 gets `max.batch.members=40` and `max.exchange.bytes=65536` per server; values the caller sets are not overridden. |
+| gossipOptionsAreMergedOverThePresetAndNeedGossip | `--gossip-option` values override the preset, and bad forms or reserved keys are rejected. |
 | serversConvergeAndReportTheirViewsThroughTheSnapshot | Four servers each see all members ALIVE, none is isolated, and the snapshot carries the plugin's status. |
 | swarmsStaySeparateAndUseTheirOwnSwarmId | Each swarm uses its own swarm ID and lists only its own members. |
 | closedServerIsSuspectedByThePeersWhichStayHealthy | A closed server is rated SUSPECT or DEAD by its peers, which keep rating each other ALIVE. |
@@ -93,6 +95,8 @@ The suite has 52 test methods (65 cases with parameterized inputs) in five JUnit
 | swarmSeededAtAnotherSwarmRejectsItAndKeepsItsOwnMembers | A server seeded at another swarm's server has its exchange turned away, and neither swarm lists the other's members. |
 
 ## Running the tests
+
+The gossip tests open many short TCP connections (the 40-server test alone leaves about 10,000 sockets in TIME_WAIT for two minutes). On Windows, avoid running the suite while another large gossip swarm is running, or the machine can run out of dynamic ports; see the 100-server note in the README.
 
 The project is built with Maven, compiles for Java 27, and uses JUnit Jupiter.
 

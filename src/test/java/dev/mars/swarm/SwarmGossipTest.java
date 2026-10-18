@@ -95,6 +95,53 @@ class SwarmGossipTest {
     }
 
     @Test
+    void swarmsLargerThanOneExchangeGetABiggerExchangeUnlessTheCallerSetsOne() throws Exception {
+        var seen = new ConcurrentHashMap<String, Properties>();
+        try (var manager = new SwarmManager(List.of(), GossipSettings.defaults(), options -> {
+            seen.put(options.serverId(), readConfig());
+            return ServerInstance.start(options);
+        })) {
+            manager.start("small", 32);
+            manager.start("large", 40);
+            var small = seen.get("small-Server-005");
+            assertNull(small.getProperty("server.small-Server-005.max.batch.members"), "32 servers fit the default exchange");
+            var large = seen.get("large-Server-040");
+            assertEquals("40", large.getProperty("server.large-Server-040.max.batch.members"));
+            assertEquals("65536", large.getProperty("server.large-Server-040.max.exchange.bytes"));
+            assertEquals("40", seen.get("large-Server-001").getProperty("server.large-Server-001.max.batch.members"));
+        }
+        seen.clear();
+        var chosen = new GossipSettings("127.0.0.1", Map.of("max.batch.members", "50", "max.exchange.bytes", "40000"));
+        try (var manager = new SwarmManager(List.of(), chosen, options -> {
+            seen.put(options.serverId(), readConfig());
+            return ServerInstance.start(options);
+        })) {
+            manager.start("mine", 40);
+            var config = seen.get("mine-Server-040");
+            assertEquals("50", config.getProperty("max.batch.members"), "The caller's value is the global default");
+            assertNull(config.getProperty("server.mine-Server-040.max.batch.members"), "and no per-server override replaces it");
+            assertNull(config.getProperty("server.mine-Server-040.max.exchange.bytes"));
+        }
+    }
+
+    @Test
+    void gossipOptionsAreMergedOverThePresetAndNeedGossip() {
+        var options = SwarmMain.parseOptions("--plugins-dir", "p", "--gossip-fast", "--gossip-option", "round.millis=2000",
+                "--gossip-option", "fanout=3").gossip();
+        assertEquals("2000", options.options().get("round.millis"), "An explicit option beats the preset");
+        assertEquals("3", options.options().get("fanout"));
+        assertEquals("500", options.options().get("heartbeat.millis"), "Other preset values stay");
+        for (String[] args : List.of(new String[]{"--plugins-dir", "p", "--gossip-option", "round.millis=1"},
+                new String[]{"--plugins-dir", "p", "--gossip", "--gossip-option", "novalue"},
+                new String[]{"--plugins-dir", "p", "--gossip", "--gossip-option", "=1"},
+                new String[]{"--plugins-dir", "p", "--gossip", "--gossip-option", "k="},
+                new String[]{"--plugins-dir", "p", "--gossip", "--gossip-option", "seeds=a@b:1"},
+                new String[]{"--plugins-dir", "p", "--gossip", "--gossip-option"})) {
+            assertThrows(IllegalArgumentException.class, () -> SwarmMain.parseOptions(args), String.join(" ", args));
+        }
+    }
+
+    @Test
     void parsesGossipOptions() {
         assertNull(SwarmMain.parseOptions().gossip());
         assertEquals(GossipSettings.defaults(), SwarmMain.parseOptions("--plugins-dir", "p", "--gossip").gossip());
@@ -267,10 +314,25 @@ class SwarmGossipTest {
         requirePlugin();
         int size = 40;
         try (var manager = new SwarmManager(List.of(PLUGIN), GossipSettings.fast())) {
+            long began = System.nanoTime();
             var endpoints = manager.start("wide", size);
+            System.out.println("DIAG started in " + (System.nanoTime() - began) / 1_000_000 + " ms");
             var first = endpoints.getFirst();
+            var progress = new Thread(() -> {
+                try {
+                    for (int i = 0; i < 12; i++) {
+                        Thread.sleep(2500);
+                        var st = status(manager, first);
+                        System.out.println("DIAG t=" + (System.nanoTime() - began) / 1_000_000 + "ms ALIVE=" + ((Map<?, ?>) st.get("assessments")).get("ALIVE")
+                                + " runtime=" + ((Map<?, ?>) st.get("runtime")) + " exchanges=" + st.get("exchanges"));
+                    }
+                } catch (Exception stop) { /* diagnostics only */ }
+            });
+            progress.setDaemon(true);
+            progress.start();
             await("server 001 rates all " + size + " members ALIVE", () ->
                     ((Number) ((Map<?, ?>) status(manager, first).get("assessments")).get("ALIVE")).intValue() >= size);
+            System.out.println("DIAG converged at " + (System.nanoTime() - began) / 1_000_000 + " ms");
 
             @SuppressWarnings("unchecked")
             var page = (Map<String, Object>) manager.execute(first, "gossip", Map.of("operation", "members", "limit", 32)).result();

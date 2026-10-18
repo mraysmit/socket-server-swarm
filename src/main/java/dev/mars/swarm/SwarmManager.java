@@ -37,6 +37,7 @@ public final class SwarmManager implements AutoCloseable {
     private final ServerFactory factory;
     private final GossipSettings gossip;
     private GossipConfigFile gossipFile;
+    private final ConnectionPool connections = new ConnectionPool();
     private boolean closed;
 
     public SwarmManager() { this(List.of()); }
@@ -142,9 +143,12 @@ public final class SwarmManager implements AutoCloseable {
         }
     }
 
+    /** Runs one command on one server over a kept-open connection; an error reply is returned, not thrown. */
     CommandReply execute(ServerEndpoint endpoint, String instruction, Map<String, Object> parameters) throws IOException {
-        return client(endpoint).execute(UUID.randomUUID(), instruction, parameters);
+        return connections.execute(endpoint, instruction, parameters);
     }
+
+    ConnectionPool connections() { return connections; }
 
     public List<CommandReply> send(String name, String input) throws IOException {
         var replies = new ArrayList<CommandReply>();
@@ -286,6 +290,7 @@ public final class SwarmManager implements AutoCloseable {
             closed = true;
             try { stopAll(); }
             finally {
+                connections.close();
                 if (gossipFile != null) { gossipFile.close(); }
             }
         }

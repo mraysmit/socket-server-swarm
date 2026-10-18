@@ -829,10 +829,26 @@ const actFor=id=>act[id]||(act[id]={lastSeq:0,rows:new Map(),counters:null,sampl
 function mergeActivity(a,j){
   a.available=j.available!==false;
   if(!a.available)return;
-  if(j.lastSeq<a.lastSeq){a.rows.clear();a.samples=[];a.lastWall=0;}
+  if(j.lastSeq<a.lastSeq){a.rows.clear();a.lastByConn=new Map();a.nth=new Map();a.samples=[];a.lastWall=0;}
+  a.lastByConn=a.lastByConn||new Map();a.nth=a.nth||new Map();
+  /* One row per request. A connection kept open for several requests (the "connection":"keep-alive" envelope field)
+     shows as several rows with the same connection number; the first request takes over the row made when it connected. */
   for(const e of j.events||[]){
-    let row=a.rows.get(e.connectionId);
-    if(!row){row={conn:e.connectionId,client:e.client||'',t:e.timeMillis,end:e.timeMillis,instruction:'',messageId:'',state:'CONNECTED',detail:''};a.rows.set(e.connectionId,row);}
+    const conn=e.connectionId,cKey='c'+conn,rKey=conn+'|'+(e.messageId||'');
+    let row;
+    if(e.kind==='CONNECTED'){
+      row={conn,client:e.client||'',t:e.timeMillis,end:e.timeMillis,instruction:'',messageId:'',state:'CONNECTED',detail:'',nth:0};
+      a.rows.set(cKey,row);a.lastByConn.set(conn,row);
+    }else if(e.kind==='REQUEST'){
+      row=a.rows.get(cKey);
+      if(row&&!row.instruction)a.rows.delete(cKey);
+      else row={conn,client:e.client||'',t:e.timeMillis,end:e.timeMillis,instruction:'',messageId:'',state:'CONNECTED',detail:''};
+      row.nth=(a.nth.get(conn)||0)+1;a.nth.set(conn,row.nth);
+      a.rows.set(rKey,row);a.lastByConn.set(conn,row);
+    }else{
+      row=a.rows.get(rKey)||a.lastByConn.get(conn);
+      if(!row){row={conn,client:e.client||'',t:e.timeMillis,end:e.timeMillis,instruction:'',messageId:'',state:'CONNECTED',detail:'',nth:1};a.rows.set(rKey,row);a.lastByConn.set(conn,row);}
+    }
     row.end=e.timeMillis;
     if(e.messageId&&!row.messageId)row.messageId=e.messageId;
     if(e.kind==='REQUEST'){row.instruction=e.instruction||'';row.state='IN_FLIGHT';}
@@ -840,6 +856,7 @@ function mergeActivity(a,j){
     else if(e.kind==='ABORTED'){row.state='ABORTED';row.detail=e.detail||'';}
     while(a.rows.size>300)a.rows.delete(a.rows.keys().next().value);
   }
+  if(a.lastByConn.size>600)for(const k of [...a.lastByConn.keys()].slice(0,a.lastByConn.size-300)){a.lastByConn.delete(k);a.nth.delete(k);}
   a.lastSeq=j.lastSeq;a.counters=j.counters;
   const now=Date.now();
   if(a.lastWall&&now>a.lastWall){a.samples.push(Math.max(0,(j.counters.requests-a.lastReq)/((now-a.lastWall)/1000)));if(a.samples.length>60)a.samples.shift();}
@@ -905,9 +922,9 @@ function renderActivity(){
   const showGossip=$('#act-gossip').checked;
   const rows=[...a.rows.values()].reverse().filter(r=>showGossip||r.instruction!=='gossip').slice(0,100);
   const note=a.error?`<p class="hint" style="border:0" role="status">${esc(a.error)}</p>`:'';
-  setHTML($('#act-feed'),`<table><thead><tr><th>Time</th><th>Client</th><th>Instruction</th><th>Message</th><th>Result</th><th class="r">ms</th></tr></thead><tbody>${
-    rows.map(r=>`<tr class="${r.instruction==='gossip'?'dim':''}"><td class="m">${clock(r.t)}</td><td class="m">${esc(r.client)}</td><td class="m">${esc(r.instruction||'—')}</td><td class="m" title="${esc(r.messageId)}">${esc(r.messageId.slice(0,8)||'—')}</td><td><span class="pill p-${r.state}" title="${esc(r.detail)}">${r.state.replace('_',' ')}</span></td><td class="r">${r.state==='IN_FLIGHT'||r.state==='CONNECTED'?'':r.end-r.t}</td></tr>`).join('')
-    ||'<tr><td colspan="6" class="old" style="white-space:normal">No connections seen yet. Send something to this server, for example send '+esc(sel.swarm)+' hello.</td></tr>'}</tbody></table>${note}`);
+  setHTML($('#act-feed'),`<table><thead><tr><th>Time</th><th>Client</th><th title="Connection number, and which request on that connection this is. A number after the dot above 1 means the connection was reused.">Conn</th><th>Instruction</th><th>Message</th><th>Result</th><th class="r">ms</th></tr></thead><tbody>${
+    rows.map(r=>`<tr class="${r.instruction==='gossip'?'dim':''}"><td class="m">${clock(r.t)}</td><td class="m">${esc(r.client)}</td><td class="m">#${r.conn}${r.nth>1?'·'+r.nth:''}</td><td class="m">${esc(r.instruction||'—')}</td><td class="m" title="${esc(r.messageId)}">${esc(r.messageId.slice(0,8)||'—')}</td><td><span class="pill p-${r.state}" title="${esc(r.detail)}">${r.state.replace('_',' ')}</span></td><td class="r">${r.state==='IN_FLIGHT'||r.state==='CONNECTED'?'':r.end-r.t}</td></tr>`).join('')
+    ||'<tr><td colspan="7" class="old" style="white-space:normal">No connections seen yet. Send something to this server, for example send '+esc(sel.swarm)+' hello.</td></tr>'}</tbody></table>${note}`);
 }
 $('#act-gossip').addEventListener('change',renderActivity);
 
@@ -927,7 +944,8 @@ async function poll(){
     try{applySnapshot(await fetchSnapshot(),false);lastOk=T;pollFailures=0;}
     catch{pollFailures++;}
   }
-  setTimeout(poll,1000);
+  /* Each snapshot opens one connection per server, and every connection lingers for two minutes after it closes, so a big swarm is polled less often. */
+  setTimeout(poll,nodes.length>32?3000:1000);
 }
 function enterLiveMode(){
   LIVE=true;
