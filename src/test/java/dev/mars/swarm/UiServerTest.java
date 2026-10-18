@@ -134,6 +134,54 @@ class UiServerTest {
     }
 
     @Test
+    void activityEndpointServesAServersSocketActivityAndOnlyNewEvents() throws Exception {
+        var recorder = new SocketActivity();
+        try (var ignored = recorder.install(); var manager = new SwarmManager(); var ui = new UiServer(manager, 0, recorder)) {
+            manager.start("solo", 2);
+            manager.send("solo", "one");
+            manager.send("solo", "two");
+            var first = Json.read(get(ui, "/api/servers/solo-Server-001/activity").body());
+            assertTrue(first.get("available").asBoolean());
+            assertEquals("solo-Server-001", first.get("serverId").asText());
+            assertEquals(2, first.get("counters").get("requests").asInt());
+            assertEquals(2, first.get("counters").get("byInstruction").get("echo").asInt());
+            assertEquals(6, first.get("events").size());
+            long last = first.get("lastSeq").asLong();
+            assertEquals(6, last);
+
+            manager.send("solo", "three");
+            var next = Json.read(get(ui, "/api/servers/solo-Server-001/activity?after=" + last).body());
+            assertEquals(3, next.get("events").size());
+            assertEquals(last + 1, next.get("events").get(0).get("seq").asLong());
+            assertEquals(3, next.get("counters").get("requests").asInt());
+            assertEquals(0, Json.read(get(ui, "/api/servers/solo-Server-001/activity?after=999").body()).get("events").size());
+            assertEquals(9, Json.read(get(ui, "/api/servers/solo-Server-001/activity?after=abc").body()).get("events").size(),
+                    "A bad after value counts as 0");
+
+            assertEquals(404, get(ui, "/api/servers/solo-Server-009/activity").statusCode());
+            assertEquals(404, get(ui, "/api/servers/solo-Server-001/other").statusCode());
+            assertEquals(405, get(ui, "/api/servers/solo-Server-001/stop").statusCode());
+        }
+    }
+
+    @Test
+    void activityEndpointSaysSoWhenNothingIsRecordedOrAServerHasBeenQuiet() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            manager.start("solo", 1);
+            var body = Json.read(get(ui, "/api/servers/solo-Server-001/activity").body());
+            assertFalse(body.get("available").asBoolean());
+            assertNull(body.get("events"));
+        }
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0, new SocketActivity())) {
+            manager.start("quiet", 1);
+            var body = Json.read(get(ui, "/api/servers/quiet-Server-001/activity").body());
+            assertTrue(body.get("available").asBoolean());
+            assertEquals(0, body.get("events").size());
+            assertEquals(0, body.get("counters").get("requests").asInt());
+        }
+    }
+
+    @Test
     void closeReleasesThePort() throws Exception {
         int port;
         try (var manager = new SwarmManager()) {

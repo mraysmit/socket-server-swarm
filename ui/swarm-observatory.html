@@ -123,6 +123,23 @@ td{padding:6px 14px;border-bottom:1px solid var(--soft);font-variant-numeric:tab
 td.m{font-family:var(--mono)} td.r,th.r{text-align:right}
 .old{color:var(--mute)}
 
+/* socket activity */
+.check{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--mute);cursor:pointer}
+.check input{accent-color:var(--accent)}
+.act-top{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line)}
+.act-stats{display:flex;flex-wrap:wrap;gap:10px 24px;margin:0}
+.act-stats div{display:flex;flex-direction:column;gap:2px}
+.act-stats dt{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.act-stats dd{margin:0;font-family:var(--mono);font-size:17px;font-variant-numeric:tabular-nums}
+.spark{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;color:var(--mute)}
+.spark svg{width:240px;height:44px;flex:none}
+.spark .line{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round}
+.spark .area{fill:var(--accent);opacity:.12}
+.spark .base{stroke:var(--line);stroke-width:1}
+.feedwrap{max-height:300px;overflow:auto}
+.feedwrap td.dim,.feedwrap tr.dim td{color:var(--mute)}
+.p-OK{color:var(--ok)} .p-ERROR,.p-ABORTED{color:var(--bad)} .p-IN_FLIGHT{color:var(--warn)} .p-CONNECTED{color:var(--gone)}
+
 /* log */
 .log{list-style:none;margin:0;padding:0;max-height:240px;overflow:auto;font-family:var(--mono);font-size:12px}
 .log li{display:grid;grid-template-columns:64px 96px 1fr;gap:10px;padding:5px 14px;border-bottom:1px solid var(--soft)}
@@ -194,6 +211,19 @@ body{margin:0}
       <div class="tablewrap" id="insp-table"></div>
     </aside>
   </div>
+
+  <section class="card" id="activity" aria-label="Socket activity" hidden>
+    <header>
+      <h2 id="act-title">Socket activity</h2>
+      <label class="check"><input type="checkbox" id="act-gossip" checked> Show gossip exchanges</label>
+    </header>
+    <div class="act-top">
+      <dl class="act-stats" id="act-stats"></dl>
+      <div class="spark" id="act-spark"></div>
+    </div>
+    <div class="feedwrap tablewrap" id="act-feed"></div>
+    <p class="hint" id="act-note">Each row is one connection to the server's main port. The server logs who connected, the instruction, the message ID and the reply status. It does not log message bodies.</p>
+  </section>
 
   <section class="card" aria-label="Event log">
     <header><h2>Events</h2><span class="clock">newest first</span></header>
@@ -554,7 +584,7 @@ function renderAll(){
     banner.hidden=!partition;
     banner.textContent=PARTITION_NOTE;
   }
-  renderGraph();renderSwarms();renderPanel();renderLog();
+  renderGraph();renderSwarms();renderPanel();renderLog();renderActivity();
   $('#partition').setAttribute('aria-pressed',partition);
   $('#pause').setAttribute('aria-pressed',paused);
   $('#pause').textContent=paused?'Resume':(LIVE?'Pause updates':'Pause');
@@ -562,7 +592,7 @@ function renderAll(){
 const PARTITION_NOTE=$('#banner').textContent;
 
 /* events */
-function select(id){sel=byId(id)||sel;renderAll();}
+function select(id){sel=byId(id)||sel;renderAll();if(LIVE)fetchActivity().then(renderActivity);}
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
   const a=b.dataset.act;
@@ -593,6 +623,79 @@ $('#speed').addEventListener('change',e=>{speed=+e.target.value;});
 $('#partition').addEventListener('click',()=>{setPartition(!partition);renderAll();});
 $('#newswarm').addEventListener('click',()=>{newSwarm();renderAll();});
 $('#addserver').addEventListener('click',()=>{addServer();renderAll();});
+
+/* live mode: socket activity of the selected server, fetched from the harness and folded into one row per connection */
+const act={};
+let actBusy=false;
+const actFor=id=>act[id]||(act[id]={lastSeq:0,rows:new Map(),counters:null,samples:[],lastWall:0,lastReq:0,available:true,error:''});
+function mergeActivity(a,j){
+  a.available=j.available!==false;
+  if(!a.available)return;
+  if(j.lastSeq<a.lastSeq){a.rows.clear();a.samples=[];a.lastWall=0;}
+  for(const e of j.events||[]){
+    let row=a.rows.get(e.connectionId);
+    if(!row){row={conn:e.connectionId,client:e.client||'',t:e.timeMillis,end:e.timeMillis,instruction:'',messageId:'',state:'CONNECTED',detail:''};a.rows.set(e.connectionId,row);}
+    row.end=e.timeMillis;
+    if(e.messageId&&!row.messageId)row.messageId=e.messageId;
+    if(e.kind==='REQUEST'){row.instruction=e.instruction||'';row.state='IN_FLIGHT';}
+    else if(e.kind==='REPLY'){row.state=e.status==='OK'?'OK':'ERROR';}
+    else if(e.kind==='ABORTED'){row.state='ABORTED';row.detail=e.detail||'';}
+    while(a.rows.size>300)a.rows.delete(a.rows.keys().next().value);
+  }
+  a.lastSeq=j.lastSeq;a.counters=j.counters;
+  const now=Date.now();
+  if(a.lastWall&&now>a.lastWall){a.samples.push(Math.max(0,(j.counters.requests-a.lastReq)/((now-a.lastWall)/1000)));if(a.samples.length>60)a.samples.shift();}
+  a.lastWall=now;a.lastReq=j.counters.requests;
+}
+async function fetchActivity(){
+  if(!LIVE||!sel||paused||actBusy)return;
+  actBusy=true;
+  const a=actFor(sel.id);
+  try{
+    const r=await fetch('/api/servers/'+encodeURIComponent(sel.id)+'/activity?after='+a.lastSeq,{cache:'no-store'});
+    if(r.ok){mergeActivity(a,await r.json());a.error='';}else a.error='The harness answered HTTP '+r.status;
+  }catch{a.error='Could not reach the harness.';}
+  actBusy=false;
+}
+async function pollActivity(){
+  await fetchActivity();
+  renderActivity();
+  setTimeout(pollActivity,1000);
+}
+const clock=ms=>{const d=new Date(ms);return d.toTimeString().slice(0,8)+'.'+String(ms%1000).padStart(3,'0');};
+function sparkline(samples){
+  const W=240,H=44,top=Math.max(1,...samples),n=samples.length;
+  if(n<2)return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Requests per second, waiting for data"><line class="base" x1="0" y1="${H-1}" x2="${W}" y2="${H-1}"/></svg>`;
+  const pts=samples.map((v,i)=>[(i/(n-1))*(W-4)+2,H-2-(v/top)*(H-6)]);
+  const line=pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  const area=`${pts[0][0].toFixed(1)},${H-1} ${line} ${pts[n-1][0].toFixed(1)},${H-1}`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Requests per second over the last minute, peak ${top.toFixed(0)}"><line class="base" x1="0" y1="${H-1}" x2="${W}" y2="${H-1}"/><polygon class="area" points="${area}"/><polyline class="line" points="${line}"/><circle cx="${pts[n-1][0].toFixed(1)}" cy="${pts[n-1][1].toFixed(1)}" r="2.6" fill="var(--accent)"/></svg>`;
+}
+function renderActivity(){
+  const card=$('#activity');
+  card.hidden=!LIVE||!sel;
+  if(card.hidden)return;
+  const a=actFor(sel.id),c=a.counters;
+  $('#act-title').textContent='Socket activity · '+sel.id;
+  if(!a.available){
+    setHTML($('#act-stats'),'');setHTML($('#act-spark'),'');
+    setHTML($('#act-feed'),'<p class="hint" style="border:0">This harness is not recording socket activity.</p>');
+    return;
+  }
+  const rate=a.samples.length?a.samples[a.samples.length-1]:0;
+  const by=c?Object.entries(c.byInstruction).sort((x,y)=>y[1]-x[1]).map(([k,v])=>`${esc(k)} ${v}`).join(' · '):'';
+  setHTML($('#act-stats'),c
+    ?`<div><dt>Connections</dt><dd>${c.connections}</dd></div><div><dt>Requests</dt><dd>${c.requests}</dd></div><div><dt>Replied OK</dt><dd>${c.repliesOk}</dd></div><div><dt>Errors</dt><dd>${c.repliesError}</dd></div><div><dt>Aborted</dt><dd>${c.aborted}</dd></div><div><dt>Requests/s</dt><dd>${rate.toFixed(1)}</dd></div>${by?`<div><dt>By instruction</dt><dd style="font-size:13px">${by}</dd></div>`:''}`
+    :'<div><dt>Status</dt><dd style="font-size:13px">'+(a.error?esc(a.error):'Waiting for the first reply…')+'</dd></div>');
+  setHTML($('#act-spark'),`${sparkline(a.samples)}<span>requests/s<br>last minute</span>`);
+  const showGossip=$('#act-gossip').checked;
+  const rows=[...a.rows.values()].reverse().filter(r=>showGossip||r.instruction!=='gossip').slice(0,100);
+  const note=a.error?`<p class="hint" style="border:0" role="status">${esc(a.error)}</p>`:'';
+  setHTML($('#act-feed'),`<table><thead><tr><th>Time</th><th>Client</th><th>Instruction</th><th>Message</th><th>Result</th><th class="r">ms</th></tr></thead><tbody>${
+    rows.map(r=>`<tr class="${r.instruction==='gossip'?'dim':''}"><td class="m">${clock(r.t)}</td><td class="m">${esc(r.client)}</td><td class="m">${esc(r.instruction||'—')}</td><td class="m" title="${esc(r.messageId)}">${esc(r.messageId.slice(0,8)||'—')}</td><td><span class="pill p-${r.state}" title="${esc(r.detail)}">${r.state.replace('_',' ')}</span></td><td class="r">${r.state==='IN_FLIGHT'||r.state==='CONNECTED'?'':r.end-r.t}</td></tr>`).join('')
+    ||'<tr><td colspan="6" class="old" style="white-space:normal">No connections seen yet. Send something to this server, for example send '+esc(sel.swarm)+' hello.</td></tr>'}</tbody></table>${note}`);
+}
+$('#act-gossip').addEventListener('change',renderActivity);
 
 /* boot: use the harness that served this page when it answers, otherwise run the simulation */
 const t0=performance.now();
@@ -642,6 +745,7 @@ async function boot(){
       T=performance.now()-t0;
       applySnapshot(first,true);lastOk=T;
       setTimeout(poll,1000);
+      pollActivity();
     }catch{ /* not served by the harness: fall through to the simulation */ }
   }
   if(!LIVE)startSimulation();

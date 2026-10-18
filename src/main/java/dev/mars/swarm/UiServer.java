@@ -25,15 +25,25 @@ public final class UiServer implements AutoCloseable {
     public static final String ACTION_HEADER = "X-Swarm-UI";
     private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart)");
 
+    private static final Pattern ACTIVITY_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/activity");
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
+    private final SocketActivity activity;
+
     /** Pass port 0 to let the operating system choose, as the tests do. */
-    public UiServer(SwarmManager manager, int port) throws IOException {
+    public UiServer(SwarmManager manager, int port) throws IOException { this(manager, port, null); }
+
+    /** With a recorder, {@code GET /api/servers/<id>/activity} serves each server's socket activity. */
+    public UiServer(SwarmManager manager, int port, SocketActivity activity) throws IOException {
+        this.activity = activity;
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
         server.createContext("/", exchange -> handle(exchange, "GET", () -> page(exchange)));
         server.createContext("/api/snapshot", exchange -> handle(exchange, "GET", () -> snapshot(exchange, manager)));
-        server.createContext("/api/servers/", exchange -> handle(exchange, "POST", () -> action(exchange, manager)));
+        server.createContext("/api/servers/", exchange -> {
+            if (exchange.getRequestMethod().equals("GET")) { handle(exchange, "GET", () -> activity(exchange, manager)); }
+            else { handle(exchange, "POST", () -> action(exchange, manager)); }
+        });
         server.setExecutor(executor);
         server.start();
     }
@@ -84,6 +94,37 @@ public final class UiServer implements AutoCloseable {
         } catch (IOException e) {
             reply(exchange, 500, "application/json", error(e.getMessage()));
         }
+    }
+
+    private void activity(HttpExchange exchange, SwarmManager manager) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        if (ACTION_PATH.matcher(path).matches()) { reply(exchange, 405, "text/plain", "Only POST is supported here"); return; }
+        var matcher = ACTIVITY_PATH.matcher(path);
+        if (!matcher.matches()) { reply(exchange, 404, "application/json", error("Not found")); return; }
+        String serverId = matcher.group(1);
+        boolean known = manager.list().values().stream().anyMatch(list -> list.stream().anyMatch(e -> e.serverId().equals(serverId)));
+        if (!known) { reply(exchange, 404, "application/json", error("Unknown server: " + serverId)); return; }
+        var body = new java.util.LinkedHashMap<String, Object>();
+        body.put("serverId", serverId);
+        body.put("available", activity != null);
+        if (activity != null) {
+            var view = activity.view(serverId, afterParameter(exchange.getRequestURI().getRawQuery()), 200);
+            if (view == null) { view = new SocketActivity.View(0, 1, new SocketActivity.Counters(0, 0, 0, 0, 0, java.util.Map.of()), java.util.List.of()); }
+            body.put("lastSeq", view.lastSeq());
+            body.put("firstSeq", view.firstSeq());
+            body.put("counters", view.counters());
+            body.put("events", view.events());
+        }
+        reply(exchange, 200, "application/json; charset=utf-8", Json.write(body));
+    }
+
+    private static long afterParameter(String query) {
+        if (query != null) {
+            for (String pair : query.split("&")) {
+                if (pair.startsWith("after=") && pair.substring(6).matches("[0-9]{1,18}")) { return Long.parseLong(pair.substring(6)); }
+            }
+        }
+        return 0;
     }
 
     private static String error(String message) throws IOException {

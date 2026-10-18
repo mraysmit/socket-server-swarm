@@ -2,11 +2,12 @@
 
 ## Overview
 
-The suite has 42 test methods (54 cases with parameterized inputs) in four JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 50 test methods (62 cases with parameterized inputs) in five JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
-- **UiServerTest** covers the HTTP endpoint: the snapshot, the page, Host checks, the action endpoints and their cross-site protections, and the UI command-line options.
+- **UiServerTest** covers the HTTP endpoint: the snapshot, the page, Host checks, the action endpoints and their cross-site protections, the activity endpoint, and the UI command-line options.
+- **SocketActivityTest** covers the recorder that turns the servers' log lines into per-server socket activity.
 - **SwarmGossipTest** covers the generated gossip config and, with the real gossip plugin, convergence, failure detection, graceful leave, restart, swarm isolation, echo traffic, and the console path. The plugin tests skip themselves if the plugin JAR is not built.
 - **junit-platform.properties** sets a 60 s default timeout and runs timed tests on a separate thread, so a hung test fails instead of stalling the build.
 
@@ -48,7 +49,20 @@ The suite has 42 test methods (54 cases with parameterized inputs) in four JUnit
 | failedRestartKeepsTheServerListedAndReportsWhy | A restart that fails reports the reason, the server stays listed, and a later restart works. |
 | serverCommandsStopAndRestartOneServerAndReportMisuse (console) | `server stop`, `server restart`, and error messages for unknown servers, unknown actions and missing arguments. |
 
-### UiServerTest (9 methods)
+### SocketActivityTest (6 methods)
+
+| Test | What it verifies |
+| --- | --- |
+| groupsOneConnectionsLinesIntoConnectRequestAndReply | A connect, an instruction and a reply line become three events with the right connection ID, client, message ID and status, and the counters. |
+| countsErrorsAbortsAndInstructionsAndIgnoresOtherLines | Error replies, aborted requests (the stderr format) and per-instruction counts; admin lines, server-ready lines, blank and null input are ignored. |
+| keepsServersApartAndOnlyTheNewestEventsPerServer | Servers are tracked separately, the buffer keeps the newest 300 events, and counters keep counting past it. |
+| viewReturnsOnlyEventsAfterAGivenSequenceAndHonoursTheLimit | The `after` sequence and the limit. |
+| installCopiesConsoleOutputToTheRecorderAndRestoresTheStreams | Console output still reaches the original stream, lines split across writes are joined, and closing restores System.out and System.err. |
+| recordsRealServerTrafficFromTheirLogLines | Real servers' echo requests are recorded with counters, message IDs and client addresses. |
+
+### UiServerTest (11 methods)
+
+The two activity endpoint tests (`activityEndpointServesAServersSocketActivityAndOnlyNewEvents` and `activityEndpointSaysSoWhenNothingIsRecordedOrAServerHasBeenQuiet`) check counters, events, the `after` parameter, unknown servers (404), the "not recorded" answer, and that GET on an action path still gives 405. The list below was written before them.
 
 | Test | What it verifies |
 | --- | --- |

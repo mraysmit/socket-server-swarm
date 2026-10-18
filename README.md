@@ -123,6 +123,17 @@ Opened from that address, the page shows the live swarms and polls the snapshot
 every second. Opened as a plain file, it runs a simulated swarm instead. Gossip
 ratings appear only for servers that load the gossip plugin.
 
+Click a server in the live page to see its socket activity below the graph: counters
+(connections, requests, replies, errors, aborted, by instruction), a requests-per-second
+sparkline, and a feed with one row per connection (time, client port, instruction,
+message ID, result, milliseconds). Gossip exchanges can be hidden with the checkbox,
+since they dominate a gossiping swarm. The data comes from the log lines the servers
+already print: the harness copies console output as it is written and parses it per
+server (`GET /api/servers/<id>/activity?after=<seq>`). The log has no message bodies, so
+the feed shows metadata only, and the harness keeps the last 300 events per server.
+Because it reads the console, it records only servers running in this harness, and only
+while the UI is enabled (`--no-ui` leaves the console untouched).
+
 In the live page, the Leave, Stop and Restart buttons for the selected server call
 `POST /api/servers/<id>/<leave|stop|restart>`, the same operations as the `server`
 console command. These requests are refused unless their `Origin` is the harness itself
