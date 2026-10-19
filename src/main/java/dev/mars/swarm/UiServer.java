@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Read-only HTTP endpoint on the loopback interface: the UI page and a JSON snapshot of every swarm. */
+/** HTTP endpoint on the loopback interface: the UI page, a JSON snapshot of every swarm, and the actions that control them. */
 public final class UiServer implements AutoCloseable {
     public static final int DEFAULT_PORT = 8088;
     private static final String PAGE = "/ui/swarm-observatory.html";
@@ -27,6 +27,8 @@ public final class UiServer implements AutoCloseable {
 
     private static final Pattern MEMBERS_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/members");
     private static final Pattern ACTIVITY_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/activity");
+    private static final Pattern SWARM_ACTION_PATH = Pattern.compile("/api/swarms/([A-Za-z][A-Za-z0-9._-]*)/(stop|send|test)");
+    private static final int MAX_BODY = 8192;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -45,6 +47,8 @@ public final class UiServer implements AutoCloseable {
             if (exchange.getRequestMethod().equals("GET")) { handle(exchange, "GET", () -> activity(exchange, manager)); }
             else { handle(exchange, "POST", () -> action(exchange, manager)); }
         });
+        server.createContext("/api/swarms", exchange -> handle(exchange, "POST", () -> swarmAction(exchange, manager)));
+        server.createContext("/api/stop-all", exchange -> handle(exchange, "POST", () -> stopAll(exchange, manager)));
         server.setExecutor(executor);
         server.start();
     }
@@ -95,6 +99,99 @@ public final class UiServer implements AutoCloseable {
         } catch (IOException e) {
             reply(exchange, 500, "application/json", error(e.getMessage()));
         }
+    }
+
+    /** Starts a swarm ({@code POST /api/swarms}), or stops, sends to or load-tests one ({@code POST /api/swarms/<name>/<action>}). */
+    private void swarmAction(HttpExchange exchange, SwarmManager manager) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        try {
+            var body = body(exchange);
+            if (path.equals("/api/swarms")) {
+                var endpoints = manager.start(text(body, "name"), integer(body, "servers", 0));
+                reply(exchange, 200, "application/json", Json.write(java.util.Map.of("ok", true, "servers", endpoints.stream().map(ServerEndpoint::serverId).toList())));
+                return;
+            }
+            var matcher = SWARM_ACTION_PATH.matcher(path);
+            if (!matcher.matches()) { reply(exchange, 404, "application/json", error("Not found")); return; }
+            String name = matcher.group(1);
+            switch (matcher.group(2)) {
+                case "stop" -> {
+                    manager.stop(name);
+                    reply(exchange, 200, "application/json", "{\"ok\":true}");
+                }
+                case "send" -> {
+                    var replies = manager.send(name, text(body, "text")).stream().map(r -> {
+                        var row = new java.util.LinkedHashMap<String, Object>();
+                        row.put("serverId", r.serverId());
+                        row.put("status", r.status());
+                        row.put("result", r.result());
+                        if (r.error() != null) { row.put("error", r.error().message()); }
+                        return row;
+                    }).toList();
+                    reply(exchange, 200, "application/json", Json.write(java.util.Map.of("ok", true, "replies", replies)));
+                }
+                default -> {
+                    var result = manager.test(name, integer(body, "requests", 1000), integer(body, "concurrency", 100), done -> { });
+                    var row = new java.util.LinkedHashMap<String, Object>();
+                    row.put("ok", result.successful());
+                    row.put("requests", result.requests());
+                    row.put("passed", result.passed());
+                    row.put("failed", result.failed());
+                    row.put("elapsedMillis", result.elapsedMillis());
+                    row.put("failures", result.failures());
+                    reply(exchange, 200, "application/json", Json.write(row));
+                }
+            }
+        } catch (IllegalArgumentException e) {
+            reply(exchange, e.getMessage() != null && e.getMessage().startsWith("Unknown swarm") ? 404 : 400, "application/json", error(e.getMessage()));
+        } catch (IllegalStateException e) {
+            reply(exchange, 409, "application/json", error(e.getMessage()));
+        } catch (IOException e) {
+            reply(exchange, 500, "application/json", error(e.getMessage()));
+        }
+    }
+
+    private void stopAll(HttpExchange exchange, SwarmManager manager) throws IOException {
+        try {
+            manager.stopAll();
+            reply(exchange, 200, "application/json", "{\"ok\":true}");
+        } catch (IllegalStateException e) {
+            reply(exchange, 409, "application/json", error(e.getMessage()));
+        } catch (IOException e) {
+            reply(exchange, 500, "application/json", error(e.getMessage()));
+        }
+    }
+
+    /** The request body as JSON; no body means an empty object. */
+    private static com.fasterxml.jackson.databind.JsonNode body(HttpExchange exchange) throws IOException {
+        byte[] bytes;
+        try (InputStream in = exchange.getRequestBody()) { bytes = in.readNBytes(MAX_BODY + 1); }
+        if (bytes.length > MAX_BODY) { throw new IllegalArgumentException("Request body is too large"); }
+        String text = new String(bytes, StandardCharsets.UTF_8).trim();
+        if (text.isEmpty()) { return Json.read("{}"); }
+        try {
+            var node = Json.read(text);
+            if (!node.isObject()) { throw new IllegalArgumentException("Request body must be a JSON object"); }
+            return node;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalArgumentException("Request body is not valid JSON");
+        }
+    }
+
+    private static String text(com.fasterxml.jackson.databind.JsonNode body, String field) {
+        var node = body.get(field);
+        if (node == null || !node.isTextual() || node.asText().isBlank()) { throw new IllegalArgumentException("Missing text field: " + field); }
+        return node.asText();
+    }
+
+    private static int integer(com.fasterxml.jackson.databind.JsonNode body, String field, int fallback) {
+        var node = body.get(field);
+        if (node == null || node.isNull()) {
+            if (fallback > 0) { return fallback; }
+            throw new IllegalArgumentException("Missing number field: " + field);
+        }
+        if (!node.isIntegralNumber() || !node.canConvertToInt()) { throw new IllegalArgumentException("Field must be a whole number: " + field); }
+        return node.asInt();
     }
 
     private void activity(HttpExchange exchange, SwarmManager manager) throws IOException {

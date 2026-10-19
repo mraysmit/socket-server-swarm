@@ -2,7 +2,7 @@
 
 ## Overview
 
-The suite has 62 test methods (74 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 67 test methods (79 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
@@ -41,7 +41,7 @@ The suite has 62 test methods (74 cases with parameterized inputs) in six JUnit 
 | invalidCommandsReportErrorsAndConsoleContinues | Bad input (non-numeric count, missing arguments, unknown swarm, out-of-range requests, unknown command, `quit extra`) prints an error and the console keeps running. |
 | eofReturnsAndOwnerClosesSwarms | End of input returns from the console without stopping swarms; closing the manager does. |
 
-### Added later: server operations (in SwarmManagerTest and SwarmConsoleTest)
+### Server operations (in SwarmManagerTest and SwarmConsoleTest)
 
 | Test | What it verifies |
 | --- | --- |
@@ -75,9 +75,9 @@ The suite has 62 test methods (74 cases with parameterized inputs) in six JUnit 
 | installCopiesConsoleOutputToTheRecorderAndRestoresTheStreams | Console output still reaches the original stream, lines split across writes are joined, and closing restores System.out and System.err. |
 | recordsRealServerTrafficFromTheirLogLines | Real servers' echo requests are recorded with counters, message IDs and client addresses. |
 
-### UiServerTest (12 methods)
+### UiServerTest (17 methods)
 
-`fullMembersEndpointRejectsUnknownServersAndServersWithoutGossip` checks that the complete-member-list endpoint gives 404 for an unknown server and 502 for one without the plugin, and that a POST to it is refused. The two activity endpoint tests (`activityEndpointServesAServersSocketActivityAndOnlyNewEvents` and `activityEndpointSaysSoWhenNothingIsRecordedOrAServerHasBeenQuiet`) check counters, events, the `after` parameter, unknown servers (404), the "not recorded" answer, and that GET on an action path still gives 405. The list below was written before them.
+`fullMembersEndpointRejectsUnknownServersAndServersWithoutGossip` checks that the complete-member-list endpoint gives 404 for an unknown server and 502 for one without the plugin, and that a POST to it is refused. The two activity endpoint tests (`activityEndpointServesAServersSocketActivityAndOnlyNewEvents` and `activityEndpointSaysSoWhenNothingIsRecordedOrAServerHasBeenQuiet`) check counters, events, the `after` parameter, unknown servers (404), the "not recorded" answer, and that GET on an action path still gives 405. The five swarm-control tests are listed at the end of the table.
 
 | Test | What it verifies |
 | --- | --- |
@@ -89,6 +89,11 @@ The suite has 62 test methods (74 cases with parameterized inputs) in six JUnit 
 | actionsRefuseRequestsThatDoNotComeFromThePageThisServerServed | An action is refused (403) with no `Origin`, a foreign `Origin`, another port, or no `X-Swarm-UI` header, and the server is left running. |
 | closeReleasesThePort, aBusyPortIsReportedToTheCaller | The port is freed on close; a busy port throws `IOException`. |
 | parsesUiOptionsWithTheUiOnByDefault | `--ui-port` and `--no-ui` parsing, including invalid ports. |
+| thePageCanStartASwarmSendToItLoadTestItAndStopIt | `POST /api/swarms` starts a 3-server swarm that then shows in the snapshot; `/send` gets an OK reply from every server; `/test` verifies 60 requests with none failed; `/stop` removes the swarm. |
+| stopAllClosesEverySwarm | `POST /api/stop-all` closes every swarm, and stopping when nothing runs is not an error. |
+| swarmActionsRejectBadInputWithoutChangingAnything | Duplicate, malformed, too-small and too-large names or counts, a count sent as text, missing fields, invalid or oversized JSON bodies, and an unknown action all give 400 or 404 (and 405 for GET), and no swarm is added. |
+| swarmActionsRefuseRequestsThatDoNotComeFromThePageThisServerServed | The swarm endpoints refuse (403) a foreign `Origin` or a missing `X-Swarm-UI` header, and start nothing. |
+| theSnapshotKeepsAnsweringWhileALargeSwarmIsStillStarting | With a server start held open, `/api/snapshot` still answers 200 instead of waiting, then shows the swarm once it has started. |
 
 ### SwarmGossipTest (14 methods)
 
@@ -110,7 +115,7 @@ The suite has 62 test methods (74 cases with parameterized inputs) in six JUnit 
 
 ## Running the tests
 
-The gossip tests start dozens of real servers. Since connections are kept open between exchanges, the whole harness suite adds about 3,000 sockets in TIME_WAIT (it used to add about 10,000). On Windows, avoid running the suite while another large gossip swarm is running on the older, non-pooling build, because that build can leave the machine short of dynamic ports; see the 100-server note in the README.
+The gossip tests start dozens of real servers. Since connections are kept open between exchanges, the whole harness suite adds about 3,000 sockets in TIME_WAIT. On Windows, avoid running the suite while another large gossip swarm is running that opens a connection per exchange, because that can leave the machine short of dynamic ports; see the 100-server note in the README.
 
 The project is built with Maven, compiles for Java 27, and uses JUnit Jupiter.
 

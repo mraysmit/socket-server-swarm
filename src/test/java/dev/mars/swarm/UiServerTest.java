@@ -233,6 +233,115 @@ class UiServerTest {
         }
     }
 
+    private HttpResponse<String> postJson(UiServer ui, String path, String json) throws Exception {
+        var request = HttpRequest.newBuilder(uri(ui, path)).header("Origin", origin(ui)).header(UiServer.ACTION_HEADER, "1")
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json)).build();
+        return http.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    void thePageCanStartASwarmSendToItLoadTestItAndStopIt() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            var started = postJson(ui, "/api/swarms", "{\"name\":\"alpha\",\"servers\":3}");
+            assertEquals(200, started.statusCode(), started.body());
+            assertEquals(3, Json.read(started.body()).get("servers").size());
+            assertEquals(3, Json.read(get(ui, "/api/snapshot").body()).get("swarms").get(0).get("servers").size());
+
+            var sent = postJson(ui, "/api/swarms/alpha/send", "{\"text\":\"hello\"}");
+            assertEquals(200, sent.statusCode(), sent.body());
+            var replies = Json.read(sent.body()).get("replies");
+            assertEquals(3, replies.size());
+            for (var reply : replies) {
+                assertEquals("OK", reply.get("status").asText());
+                assertEquals("Received: hello", reply.get("result").asText());
+            }
+
+            var tested = postJson(ui, "/api/swarms/alpha/test", "{\"requests\":60,\"concurrency\":6}");
+            assertEquals(200, tested.statusCode(), tested.body());
+            var result = Json.read(tested.body());
+            assertTrue(result.get("ok").asBoolean());
+            assertEquals(60, result.get("passed").asInt());
+            assertEquals(0, result.get("failed").asInt());
+
+            assertEquals(200, postJson(ui, "/api/swarms/alpha/stop", "{}").statusCode());
+            assertEquals(0, Json.read(get(ui, "/api/snapshot").body()).get("swarms").size());
+        }
+    }
+
+    @Test
+    void stopAllClosesEverySwarm() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            manager.start("alpha", 1);
+            manager.start("beta", 1);
+            assertEquals(200, postJson(ui, "/api/stop-all", "").statusCode());
+            assertEquals(0, manager.list().size());
+            assertEquals(200, postJson(ui, "/api/stop-all", "").statusCode(), "Stopping nothing is fine");
+        }
+    }
+
+    @Test
+    void swarmActionsRejectBadInputWithoutChangingAnything() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            manager.start("alpha", 1);
+            assertEquals(400, postJson(ui, "/api/swarms", "{\"name\":\"alpha\",\"servers\":2}").statusCode(), "Duplicate name");
+            assertEquals(400, postJson(ui, "/api/swarms", "{\"name\":\"9bad\",\"servers\":2}").statusCode(), "Bad name");
+            assertEquals(400, postJson(ui, "/api/swarms", "{\"name\":\"beta\",\"servers\":0}").statusCode(), "Too few");
+            assertEquals(400, postJson(ui, "/api/swarms", "{\"name\":\"beta\",\"servers\":101}").statusCode(), "Too many");
+            assertEquals(400, postJson(ui, "/api/swarms", "{\"name\":\"beta\",\"servers\":\"3\"}").statusCode(), "Count must be a number");
+            assertEquals(400, postJson(ui, "/api/swarms", "{\"servers\":3}").statusCode(), "Missing name");
+            assertEquals(400, postJson(ui, "/api/swarms", "not json").statusCode(), "Not JSON");
+            assertEquals(400, postJson(ui, "/api/swarms", "[1]").statusCode(), "Not an object");
+            assertEquals(400, postJson(ui, "/api/swarms", "{\"name\":\"" + "x".repeat(9000) + "\",\"servers\":1}").statusCode(), "Too large");
+            assertEquals(400, postJson(ui, "/api/swarms/alpha/send", "{}").statusCode(), "No message");
+            assertEquals(400, postJson(ui, "/api/swarms/alpha/test", "{\"requests\":0}").statusCode(), "No requests");
+            assertEquals(404, postJson(ui, "/api/swarms/nope/stop", "{}").statusCode(), "Unknown swarm");
+            assertEquals(404, postJson(ui, "/api/swarms/nope/send", "{\"text\":\"x\"}").statusCode(), "Unknown swarm");
+            assertEquals(404, postJson(ui, "/api/swarms/alpha/explode", "{}").statusCode());
+            assertEquals(405, get(ui, "/api/swarms").statusCode());
+            assertEquals(List.of("alpha"), List.copyOf(manager.list().keySet()), "Only the first swarm exists");
+        }
+    }
+
+    @Test
+    void swarmActionsRefuseRequestsThatDoNotComeFromThePageThisServerServed() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            for (String path : List.of("/api/swarms", "/api/stop-all")) {
+                var foreign = HttpRequest.newBuilder(uri(ui, path)).header("Origin", "https://evil.example")
+                        .header(UiServer.ACTION_HEADER, "1").POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"x\",\"servers\":1}")).build();
+                assertEquals(403, http.send(foreign, HttpResponse.BodyHandlers.ofString()).statusCode(), path);
+                var noHeader = HttpRequest.newBuilder(uri(ui, path)).header("Origin", origin(ui))
+                        .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"x\",\"servers\":1}")).build();
+                assertEquals(403, http.send(noHeader, HttpResponse.BodyHandlers.ofString()).statusCode(), path);
+            }
+            assertEquals(0, manager.list().size(), "Neither refused request started a swarm");
+        }
+    }
+
+    @Test
+    void theSnapshotKeepsAnsweringWhileALargeSwarmIsStillStarting() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        try (var manager = new SwarmManager(List.of(), options -> {
+            entered.countDown();
+            try { release.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            return ServerInstance.start(options);
+        }); var ui = new UiServer(manager, 0)) {
+            var starting = java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try { manager.start("slow", 2); } catch (IOException e) { throw new IllegalStateException(e); }
+            });
+            try {
+                assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS));
+                var response = get(ui, "/api/snapshot");
+                assertEquals(200, response.statusCode(), "The snapshot must not wait for the swarm that is starting");
+                assertEquals(0, Json.read(response.body()).get("swarms").size());
+            } finally {
+                release.countDown();
+            }
+            starting.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(2, Json.read(get(ui, "/api/snapshot").body()).get("swarms").get(0).get("servers").size());
+        }
+    }
+
     private HttpResponse<String> get(UiServer ui, String path) throws Exception {
         return http.send(HttpRequest.newBuilder(uri(ui, path)).GET().build(), HttpResponse.BodyHandlers.ofString());
     }

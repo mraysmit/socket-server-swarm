@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Layout: swarm list | live graph | server inspector, event log and design notes below. Truth is drawn on the node, opinion is drawn as a badge. */
+/* Layout: swarm list | live graph | server inspector, and event log below. Truth is drawn on the node, opinion is drawn as a badge. */
 :root{
   --bg:#eaeef2; --panel:#fafbfc; --ink:#14202b; --mute:#566676; --line:#d0d8df; --soft:#e2e8ee;
   --accent:#2456d6; --accent-ink:#ffffff;
@@ -55,8 +55,8 @@ select{background:var(--panel);border:1px solid var(--line);border-radius:6px;pa
 .banner{border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:6px 10px;font-size:13px}
 
 /* three-column app that fills the window: swarm list | canvas and dock | inspector */
-.app{display:grid;grid-template-columns:clamp(200px,14vw,260px) minmax(0,1fr) clamp(320px,24vw,440px);gap:12px;align-items:stretch;
-  height:max(560px,calc(100dvh - 76px))}
+.app{display:grid;grid-template-columns:clamp(250px,18vw,330px) minmax(0,1fr) clamp(320px,24vw,440px);gap:12px;align-items:stretch;
+  height:max(560px,calc(100dvh - 84px))}
 .app>.card{display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
 .card h2{font-size:11px;font-family:var(--mono);font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
@@ -175,6 +175,14 @@ td.m{font-family:var(--mono)} td.r,th.r{text-align:right}
 .btn.small{padding:3px 9px;font-size:12px}
 input.find{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 9px;width:170px}
 input.find:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.ctl{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.ctl .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ctl input{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-width:0;color:inherit}
+.ctl input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.ctl input.w-name{flex:1 1 90px}.ctl input.w-num{width:76px;flex:0 0 76px}.ctl input.w-text{flex:1 1 120px}
+.ctl select{flex:1 1 90px;min-width:0}
+.ctl .result{font-size:12px;color:var(--mute);margin:0;white-space:pre-wrap;word-break:break-word}
+.ctl .result.bad{color:var(--bad)}
 
 /* log */
 .log{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:12px}
@@ -184,11 +192,6 @@ input.find:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .k-converged,.k-started,.k-recovered,.k-restarted{color:var(--ok)} .k-suspect,.k-partition,.k-leaving{color:var(--warn)}
 .k-dead,.k-stopped{color:var(--bad)} .k-left{color:var(--gone)}
 
-/* notes */
-.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0}
-.notes div{padding:14px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
-.notes b{display:block;font-weight:600;margin-bottom:4px}
-.notes p{color:var(--mute);font-size:13px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
 @media (max-width:1180px){
@@ -231,6 +234,28 @@ body{margin:0}
   <div class="app">
     <aside class="card" aria-label="Swarms">
       <header><h2>Swarms</h2></header>
+      <div class="ctl" id="ctl" hidden>
+        <form class="row" id="ctl-start" aria-label="Start a swarm">
+          <label class="sr" for="ctl-name">Swarm name</label><input class="w-name" id="ctl-name" placeholder="name" autocomplete="off" spellcheck="false">
+          <label class="sr" for="ctl-count">Servers</label><input class="w-num" id="ctl-count" type="number" min="1" max="100" value="5" title="Servers, 1 to 100">
+          <button class="btn" id="ctl-go" type="submit" title="Start the swarm. 100 servers take several seconds.">Start</button>
+        </form>
+        <div class="row">
+          <label class="sr" for="ctl-swarm">Swarm</label><select id="ctl-swarm" aria-label="Swarm to act on"></select>
+          <button class="btn danger" id="ctl-stop" type="button" title="Close every server in this swarm">Stop</button>
+          <button class="btn danger" id="ctl-stopall" type="button" title="Close every server in every swarm">Stop all</button>
+        </div>
+        <form class="row" id="ctl-send" aria-label="Send a message">
+          <label class="sr" for="ctl-text">Message</label><input class="w-text" id="ctl-text" placeholder="message or JSON" autocomplete="off" spellcheck="false" title="Plain text is echoed. A full JSON request is sent as it is.">
+          <button class="btn" id="ctl-sendgo" type="submit" title="Send to every server in the swarm">Send</button>
+        </form>
+        <form class="row" id="ctl-test" aria-label="Run a load test">
+          <label class="sr" for="ctl-req">Requests</label><input class="w-num" id="ctl-req" type="number" min="1" max="100000" value="1000" title="Requests, 1 to 100,000">
+          <label class="sr" for="ctl-conc">Clients</label><input class="w-num" id="ctl-conc" type="number" min="1" max="1000" value="100" title="Clients at once, 1 to 1,000">
+          <button class="btn" id="ctl-testgo" type="submit" title="Verified echo load test across the swarm">Load test</button>
+        </form>
+        <p class="result" id="ctl-result" role="status"></p>
+      </div>
       <div class="swarms" id="swarms"></div>
       <p class="hint" id="hint">Demo timings: round 1 s, suspect after 7 s, dead after 16 s. Real values are set in the gossip config.</p>
     </aside>
@@ -289,18 +314,6 @@ body{margin:0}
       <div class="tablewrap" id="insp-table"></div>
     </aside>
   </div>
-
-  <section class="card" aria-label="Design guidelines">
-    <header><h2>Design guidelines</h2></header>
-    <div class="notes">
-      <div><b>Show what is true, then what is believed</b><p>A node's outline is its real state. The badge on every other node is only the selected server's opinion. Disagreement between the two is the thing to look at.</p></div>
-      <div><b>State never relies on color</b><p>Each state has a color, a stroke pattern and a word: solid, dashed, dotted. It stays readable in grayscale and for color-blind viewers.</p></div>
-      <div><b>Motion is traffic, not decoration</b><p>Dots appear only when a real exchange happens, and failed ones turn red and stop short. Pause and speed controls are always within reach.</p></div>
-      <div><b>One vocabulary with the plugin</b><p>ALIVE, SUSPECT, DEAD, LEFT, bootId, heartbeat and departure states use the plugin's own names, so what you read here matches what the logs and console say.</p></div>
-      <div><b>Overview, then one server</b><p>Swarm convergence first, then a single server's full member table. Never mix several viewpoints in one table.</p></div>
-      <div><b>Label simulated values honestly</b><p>Timings and percentages are measured from the run on screen. No claimed guarantees, and demo thresholds are stated.</p></div>
-    </div>
-  </section>
 </div>
 
 <script>
@@ -679,7 +692,7 @@ function renderSwarms(){
   const html=swarms().map(s=>`<section class="swarm"><div class="hd"><h3>${esc(s)}</h3><span class="conv" data-conv="${s}"></span></div>
     <div class="meter"><i data-bar="${s}"></i></div>
     <ul class="chips">${nodes.filter(n=>n.swarm===s).map(n=>`<li><button class="chip st-${state(n)}${sel===n?' on':''}" data-act="select" data-id="${n.id}" data-key="c-${n.id}" aria-pressed="${sel===n}" title="${n.id}"><span class="dot"></span>${pad(n.n)}</button></li>`).join('')}</ul></section>`).join('');
-  setHTML($('#swarms'),html);
+  setHTML($('#swarms'),html||(LIVE?'<p class="hint" style="border:0">No swarms yet. Enter a name and a number of servers above, then press Start.</p>':''));
   for(const s of swarms()){const c=conv(s),v=c===null?0:Math.round(c*100);
     const a=$(`[data-conv="${s}"]`),b=$(`[data-bar="${s}"]`);
     if(a)a.textContent=c===null?'—':v+'% in sync';if(b)b.style.width=v+'%';}
@@ -728,7 +741,7 @@ function renderAll(){
     banner.hidden=!partition;
     banner.textContent=PARTITION_NOTE;
   }
-  renderGraph();renderSwarms();renderPanel();renderLog();renderActivity();
+  renderGraph();renderSwarms();renderPanel();renderLog();renderActivity();renderControls();
   const cs=$('#canvas-sel');
   cs.hidden=!(focusMode&&sel);
   if(!cs.hidden)setHTML(cs,`<span>${esc(sel.id)}</span>${pill(worker(sel))}`);
@@ -768,6 +781,75 @@ async function runAction(act,o){
   try{applySnapshot(await fetchSnapshot(),false);lastOk=T;pollFailures=0;}catch{pollFailures++;}
   renderAll();
 }
+/* live mode: start, stop, message and load-test swarms from the page, so the harness console is not needed */
+let ctlBusy=false;
+const NAMES=['alpha','beta','gamma','delta','epsilon','zeta','eta','theta','iota','kappa'];
+function ctlResult(text,bad){const r=$('#ctl-result');r.textContent=text;r.classList.toggle('bad',!!bad);}
+function renderControls(){
+  if(!LIVE)return;
+  const names=swarms(),sw=$('#ctl-swarm'),now=names.join('|');
+  if(sw._names!==now){
+    const keep=sw.value;sw._names=now;
+    sw.innerHTML=names.map(n=>'<option>'+esc(n)+'</option>').join('')||'<option value="">no swarms</option>';
+    if(names.includes(keep))sw.value=keep;
+  }
+  if(sel&&document.activeElement!==sw&&sw._follow!==sel.id){sw._follow=sel.id;if(names.includes(sel.swarm))sw.value=sel.swarm;}
+  const nm=$('#ctl-name');
+  if(!nm.value&&document.activeElement!==nm)nm.value=NAMES.find(n=>!names.includes(n))||'swarm'+(names.length+1);
+  const has=names.length>0;
+  for(const id of['ctl-name','ctl-count','ctl-go'])$('#'+id).disabled=ctlBusy;
+  for(const id of['ctl-swarm','ctl-stop','ctl-stopall','ctl-text','ctl-sendgo','ctl-req','ctl-conc','ctl-testgo'])$('#'+id).disabled=ctlBusy||!has;
+}
+async function ctlPost(path,body,busyText){
+  if(ctlBusy)return null;
+  ctlBusy=true;ctlResult(busyText);renderControls();
+  try{
+    const r=await fetch(path,{method:'POST',headers:{'X-Swarm-UI':'1','Content-Type':'application/json'},body:JSON.stringify(body||{}),cache:'no-store'});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){ctlResult(j.error||('The harness answered HTTP '+r.status),true);return null;}
+    return j;
+  }catch{ctlResult('Could not reach the harness.',true);return null;}
+  finally{
+    ctlBusy=false;
+    try{applySnapshot(await fetchSnapshot(),false);lastOk=T;pollFailures=0;}catch{pollFailures++;}
+    renderAll();
+  }
+}
+const quote=t=>t.length>90?t.slice(0,90)+'…':t;
+$('#ctl-start').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const name=$('#ctl-name').value.trim(),servers=Number($('#ctl-count').value);
+  const j=await ctlPost('/api/swarms',{name,servers},'Starting '+name+' ('+servers+' servers)…');
+  if(j){ctlResult('Started '+name+' with '+j.servers.length+' servers.');$('#ctl-name').value='';}
+});
+$('#ctl-stop').addEventListener('click',async()=>{
+  const n=$('#ctl-swarm').value;if(!n)return;
+  if(await ctlPost('/api/swarms/'+encodeURIComponent(n)+'/stop',{},'Stopping '+n+'…'))ctlResult('Stopped '+n+'.');
+});
+$('#ctl-stopall').addEventListener('click',async()=>{
+  if(await ctlPost('/api/stop-all',{},'Stopping every swarm…'))ctlResult('Stopped every swarm.');
+});
+$('#ctl-send').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const n=$('#ctl-swarm').value,text=$('#ctl-text').value.trim();
+  if(!n||!text){ctlResult('Choose a swarm and enter a message.',true);return;}
+  const j=await ctlPost('/api/swarms/'+encodeURIComponent(n)+'/send',{text},'Sending to '+n+'…');
+  if(j){
+    const bad=j.replies.filter(r=>r.status!=='OK'),first=j.replies.find(r=>r.status==='OK');
+    ctlResult((j.replies.length-bad.length)+' of '+j.replies.length+' servers replied OK.'
+      +(first?'\nFirst reply: '+quote(JSON.stringify(first.result)):'')
+      +(bad.length?'\n'+bad.length+' failed: '+quote(bad[0].serverId+' '+(bad[0].error||bad[0].status)):''),bad.length>0);
+  }
+});
+$('#ctl-test').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const n=$('#ctl-swarm').value;if(!n)return;
+  const requests=Number($('#ctl-req').value),concurrency=Number($('#ctl-conc').value);
+  const j=await ctlPost('/api/swarms/'+encodeURIComponent(n)+'/test',{requests,concurrency},'Running '+requests+' requests on '+n+'…');
+  if(j)ctlResult(j.passed+' of '+j.requests+' verified in '+(j.elapsedMillis/1000).toFixed(1)+' s'
+    +(j.elapsedMillis>0?' ('+Math.round(j.requests*1000/j.elapsedMillis)+' requests/s)':'')
+    +(j.failed?'\n'+j.failed+' failed: '+quote(j.failures[0]||''):''),!j.ok);
+});
 const stage=$('#stage'),canvas=$('#canvas');
 let pan=null;
 stage.addEventListener('pointerdown',e=>{
@@ -972,6 +1054,7 @@ function enterLiveMode(){
   LIVE=true;
   $('#modetag').textContent='Live · '+location.host;
   for(const id of['speed','partition','newswarm','addserver'])$('#'+id).hidden=true;
+  $('#ctl').hidden=false;
   document.querySelectorAll('.sep,.simonly').forEach(el=>{el.hidden=true;});
   $('#hint').textContent='Ratings are each server’s own gossip view of its peers. Timings come from the gossip settings on each server. Servers without the plugin show only whether they answer.';
   showDock();

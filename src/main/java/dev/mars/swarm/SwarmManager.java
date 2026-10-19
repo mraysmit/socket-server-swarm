@@ -38,7 +38,7 @@ public final class SwarmManager implements AutoCloseable {
     private final GossipSettings gossip;
     private GossipConfigFile gossipFile;
     private final ConnectionPool connections = new ConnectionPool();
-    private boolean closed;
+    private volatile boolean closed;
 
     public SwarmManager() { this(List.of()); }
     public SwarmManager(Path pluginsDir) { this(pluginsDir == null ? List.of() : List.of(pluginsDir)); }
@@ -102,7 +102,7 @@ public final class SwarmManager implements AutoCloseable {
                 error.initCause(e);
                 throw error;
             }
-            swarms.put(name, List.copyOf(ordered));
+            synchronized (swarms) { swarms.put(name, List.copyOf(ordered)); }
             committed = true;
             return endpoints(ordered);
         } catch (IOException | RuntimeException e) {
@@ -110,7 +110,7 @@ public final class SwarmManager implements AutoCloseable {
             throw e;
         } finally {
             if (!committed) {
-                swarms.remove(name);
+                synchronized (swarms) { swarms.remove(name); }
                 if (gossipFile != null) { gossipFile.forget(name); }
             }
         }
@@ -122,9 +122,10 @@ public final class SwarmManager implements AutoCloseable {
         return server;
     }
 
-    public synchronized Map<String, List<ServerEndpoint>> list() {
+    /** Does not wait for a swarm that is still starting, so the UI keeps polling while a large swarm comes up. */
+    public Map<String, List<ServerEndpoint>> list() {
         var snapshot = new LinkedHashMap<String, List<ServerEndpoint>>();
-        swarms.forEach((name, servers) -> snapshot.put(name, endpoints(servers)));
+        synchronized (swarms) { swarms.forEach((name, servers) -> snapshot.put(name, endpoints(servers))); }
         return Collections.unmodifiableMap(snapshot);
     }
 
@@ -241,7 +242,7 @@ public final class SwarmManager implements AutoCloseable {
         catch (IOException | RuntimeException e) { throw new IOException("Cannot restart " + serverId + ": " + e.getMessage(), e); }
         var updated = new ArrayList<>(at.servers());
         updated.set(at.position(), fresh);
-        swarms.put(at.swarm(), List.copyOf(updated));
+        synchronized (swarms) { swarms.put(at.swarm(), List.copyOf(updated)); }
         return new ServerEndpoint(serverId, fresh.getPort(), fresh.getAdminPort());
     }
 
@@ -278,16 +279,22 @@ public final class SwarmManager implements AutoCloseable {
 
     public synchronized void stop(String name) throws IOException {
         ensureOpen();
-        var servers = swarms.remove(name);
+        List<ServerInstance> servers;
+        synchronized (swarms) { servers = swarms.remove(name); }
         if (servers == null) { throw new IllegalArgumentException("Unknown swarm: " + name); }
         if (gossipFile != null) { gossipFile.forget(name); }
         closeServers(servers);
     }
 
     public synchronized void stopAll() throws IOException {
-        var servers = swarms.values().stream().flatMap(List::stream).toList();
-        if (gossipFile != null) { swarms.keySet().forEach(gossipFile::forget); }
-        swarms.clear();
+        List<ServerInstance> servers;
+        java.util.List<String> names;
+        synchronized (swarms) {
+            servers = swarms.values().stream().flatMap(List::stream).toList();
+            names = List.copyOf(swarms.keySet());
+            swarms.clear();
+        }
+        if (gossipFile != null) { names.forEach(gossipFile::forget); }
         closeServers(servers);
     }
 
@@ -302,9 +309,10 @@ public final class SwarmManager implements AutoCloseable {
         }
     }
 
-    private synchronized List<ServerEndpoint> snapshot(String name) {
+    private List<ServerEndpoint> snapshot(String name) {
         ensureOpen();
-        var servers = swarms.get(name);
+        List<ServerInstance> servers;
+        synchronized (swarms) { servers = swarms.get(name); }
         if (servers == null) { throw new IllegalArgumentException("Unknown swarm: " + name); }
         return endpoints(servers);
     }
