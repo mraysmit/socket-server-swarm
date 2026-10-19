@@ -2,7 +2,7 @@
 
 ## Overview
 
-The suite has 73 test methods (85 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 76 test methods (88 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
@@ -14,7 +14,7 @@ The suite has 73 test methods (85 cases with parameterized inputs) in six JUnit 
 
 ## Test inventory
 
-### SwarmManagerTest (18 methods, 45 s timeout; the server-operation tests are listed under "Server operations" below)
+### SwarmManagerTest (19 methods, 45 s timeout; the server-operation tests are listed under "Server operations" below)
 
 | Test | What it verifies |
 | --- | --- |
@@ -31,7 +31,7 @@ The suite has 73 test methods (85 cases with parameterized inputs) in six JUnit 
 | rejectsInvalidServerCounts (-1, 0, 101) | Server counts outside 1 to 100 are rejected. |
 | validatesLoadSettingsAndCloseIsIdempotent | Requests outside 1 to 100000 and clients outside 1 to 1000 are rejected; `close()` can be called twice and releases ports; starting after close throws `IllegalStateException`. |
 
-### SwarmConsoleTest (7 methods, 30 s timeout)
+### SwarmConsoleTest (8 methods, 30 s timeout)
 
 | Test | What it verifies |
 | --- | --- |
@@ -48,9 +48,11 @@ The suite has 73 test methods (85 cases with parameterized inputs) in six JUnit 
 | stopsAndRestartsOneServerOnItsSamePortsWithoutTouchingItsPeers | A stopped server stays listed with its ports and shows as not alive while its peers stay alive. Restart brings it back on the same ports. Restarting a running server replaces it. |
 | serverOperationsRejectUnknownServersAndLeaveNeedsGossip | Malformed or unknown server IDs throw `IllegalArgumentException`; `leave` without gossip throws `IllegalStateException`; operations after close fail. |
 | failedRestartKeepsTheServerListedAndReportsWhy | A restart that fails reports the reason, the server stays listed, and a later restart works. |
+| aCommandToOneServerReturnsTheReplyTheErrorOrWhyThereWasNone | `command` returns OK replies for plain text (sent as echo) and JSON, an ERROR reply with `UNKNOWN_INSTRUCTION` or `INVALID_PARAMETERS` and no failure, the server's `INVALID_REQUEST` for malformed input sent as typed, FAILED with "Connection refused" for a stopped server, and rejects an unknown server, a blank, a two-line and an over-long command. |
 | addingServersNumbersThemAfterTheHighestIdAndTheyAnswer | `addServers` adds servers numbered after the highest ID, all answer, and removing the last server frees its number. |
 | removingAServerUnlistsItAndTheOthersKeepWorkingByTheirIds | A removed server is unlisted, its port is closed, it cannot be restarted or removed again; servers after the gap are still found by ID, new servers continue the numbering, and removing the last server drops the swarm. |
 | addingServersRejectsUnknownSwarmsAndSizesPastTheLimit | Unknown swarm, a count below 1, and any size past 100 servers are rejected; exactly 100 is allowed. |
+| callSendsOneCommandToOneServerAndShowsTheRawReplyOrTheFailure (console) | `call <id> <text or JSON>` prints the line sent, the raw reply and the status for OK, ERROR and FAILED outcomes, and reports an unknown server and missing arguments. |
 | addAndRemoveGrowAndShrinkASwarmAndReportMisuse (console) | `add <name> [servers]` and `server remove <id>` change the swarm, and bad input prints a usage or error message. |
 | serverCommandsStopAndRestartOneServerAndReportMisuse (console) | `server stop`, `server restart`, and error messages for unknown servers, unknown actions and missing arguments. |
 
@@ -79,7 +81,7 @@ The suite has 73 test methods (85 cases with parameterized inputs) in six JUnit 
 | installCopiesConsoleOutputToTheRecorderAndRestoresTheStreams | Console output still reaches the original stream, lines split across writes are joined, and closing restores System.out and System.err. |
 | recordsRealServerTrafficFromTheirLogLines | Real servers' echo requests are recorded with counters, message IDs and client addresses. |
 
-### UiServerTest (18 methods)
+### UiServerTest (19 methods)
 
 `fullMembersEndpointRejectsUnknownServersAndServersWithoutGossip` checks that the complete-member-list endpoint gives 404 for an unknown server and 502 for one without the plugin, and that a POST to it is refused. The two activity endpoint tests (`activityEndpointServesAServersSocketActivityAndOnlyNewEvents` and `activityEndpointSaysSoWhenNothingIsRecordedOrAServerHasBeenQuiet`) check counters, events, the `after` parameter, unknown servers (404), the "not recorded" answer, and that GET on an action path still gives 405. The five swarm-control tests are listed at the end of the table.
 
@@ -93,6 +95,7 @@ The suite has 73 test methods (85 cases with parameterized inputs) in six JUnit 
 | actionsRefuseRequestsThatDoNotComeFromThePageThisServerServed | An action is refused (403) with no `Origin`, a foreign `Origin`, another port, or no `X-Swarm-UI` header, and the server is left running. |
 | closeReleasesThePort, aBusyPortIsReportedToTheCaller | The port is freed on close; a busy port throws `IOException`. |
 | parsesUiOptionsWithTheUiOnByDefault | `--ui-port` and `--no-ui` parsing, including invalid ports. |
+| thePageCanSendACommandToOneServerAndSeeTheReplyOrTheError | `POST /api/servers/<id>/command` returns the reply fields and raw reply, an error reply's code, and a 200 with `FAILED` for a stopped server; an unknown server gives 404, a missing or two-line command 400, GET 405 and a foreign `Origin` 403. |
 | thePageCanAddServersToASwarmAndRemoveOne | `POST /api/swarms/<name>/servers` adds one or several servers (one with no body), `POST /api/servers/<id>/remove` removes one, bad counts and unknown swarms or servers give 400 or 404, a foreign `Origin` is refused, and refused requests change nothing. |
 | thePageCanStartASwarmSendToItLoadTestItAndStopIt | `POST /api/swarms` starts a 3-server swarm that then shows in the snapshot; `/send` gets an OK reply from every server; `/test` verifies 60 requests with none failed; `/stop` removes the swarm. |
 | stopAllClosesEverySwarm | `POST /api/stop-all` closes every swarm, and stopping when nothing runs is not an error. |

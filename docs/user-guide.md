@@ -90,6 +90,12 @@ The page polls every second, or every 3 seconds once a swarm is larger than 32 s
 Use the controls in the Swarms panel. They act on the swarm chosen in the drop-down, which follows the
 server you select.
 
+- **Command to one server:** open the **Command** tab in the bottom panel, pick a server (or click one), type a
+  command and press Send. Plain text is sent as an echo; a JSON request such as
+  `{"instruction":"gossip","parameters":{"operation":"status"}}` is sent as a request, and the Try buttons fill in
+  examples. Every entry shows what was sent and exactly what came back: the result, or the error code and
+  message, or why there was no reply (for example "Connection refused" for a stopped server). Use it to see how a
+  server handles bad input. The console equivalent is `call alpha-Server-002 hello`.
 - **Send:** type a message and press Send. Plain text is echoed back. A full JSON request such as
   `{"instruction":"echo","parameters":{"text":"hi"}}` is sent as it is. The panel reports how many servers
   replied OK and shows the first reply, and the requests appear in the socket activity feed.

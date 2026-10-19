@@ -69,6 +69,7 @@ Swarm reply | messageId=<uuid> | serverId=alpha-Server-001 | connectionId=<id> |
 | `list` | Show every swarm, server ID, and actual main/admin port |
 | `status [name]` | Query the admin status of one or all swarms |
 | `send <name> <text or JSON>` | Send to each server; plain text invokes `echo` |
+| `call <id> <text or JSON>` | Send one command to one server, running or not, and print the line sent, the raw reply, the status and the time. An error reply, a malformed request, a refused connection and a missing reply are all shown, not hidden. |
 | `test <name> [requests] [clients]` | Run a verified load test; defaults: 1,000 requests, concurrency 100; one kept-open connection per client |
 | `server <stop\|leave\|restart\|remove> <id>` | Act on one server by ID, for example `alpha-Server-002`. `stop` closes it without telling its peers and keeps it listed. `restart` starts it again on the same ports (a gossip server gets a new boot ID). `leave` publishes a graceful gossip departure and needs `--gossip`. `remove` takes the server out of its swarm for good (with gossip it announces its departure first); the swarm is dropped when its last server is removed. |
 | `stop <name>` | Close every instance in one swarm |
@@ -198,8 +199,20 @@ the feed shows metadata only, and the harness keeps the last 300 events per serv
 Because it reads the console, it records only servers running in this harness, and only
 while the UI is enabled (`--no-ui` leaves the console untouched).
 
+The **Command** tab in the bottom panel sends one command to any server and shows exactly what came back. Pick the
+server in its list (or select one anywhere on the page), type plain text, which is sent as an `echo`, or a JSON
+request such as `{"instruction":"gossip","parameters":{"operation":"status"}}`, and press Send. Each entry in the
+history shows the line sent, the status (OK, ERROR or FAILED), the time, the connection number, the result or the
+error code and message, and the raw reply. A request that is not valid is sent as typed, so the server's own
+complaint comes back; a stopped server shows "Connection refused", and a server that does not answer shows a timeout
+after 10 seconds. The Try buttons fill in an echo, the gossip operations and an unknown instruction. The up and down
+arrows recall earlier commands, and Clear empties the history (which is also gone when the page is reloaded). It
+uses `POST /api/servers/<id>/command` with `{"text":"..."}`, which has the same protection as the other actions and
+answers 200 with the whole outcome even when the command failed, 404 for an unknown server and 400 for an empty or
+multi-line command.
+
 Clicking a server on the canvas, or its chip in the swarm list, selects it and shows its socket traffic in the
-bottom panel (it switches to the Socket activity tab and opens the panel if it was hidden). Pause feed freezes
+bottom panel (it switches to the Socket activity tab and opens the panel if it was hidden; on the Command tab it stays there and changes the target). Pause feed freezes
 the feed so you can read it, and Resume feed catches up from where it stopped.
 
 In the live page, the Leave, Stop, Restart and Remove buttons for the selected server call

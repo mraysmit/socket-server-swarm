@@ -25,6 +25,7 @@ public final class UiServer implements AutoCloseable {
     public static final String ACTION_HEADER = "X-Swarm-UI";
     private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart|remove)");
 
+    private static final Pattern COMMAND_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/command");
     private static final Pattern MEMBERS_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/members");
     private static final Pattern ACTIVITY_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/activity");
     private static final Pattern SWARM_ACTION_PATH = Pattern.compile("/api/swarms/([A-Za-z][A-Za-z0-9._-]*)/(stop|send|test|servers)");
@@ -81,7 +82,21 @@ public final class UiServer implements AutoCloseable {
         return Set.of("http://localhost:" + port, "http://127.0.0.1:" + port, "http://[::1]:" + port).contains(origin);
     }
 
+    /** {@code POST /api/servers/<id>/command} with {"text": "..."}: sends it to that server and returns everything that came back. */
+    private void command(HttpExchange exchange, SwarmManager manager, String serverId) throws IOException {
+        try {
+            var result = manager.command(serverId, text(body(exchange), "text"));
+            reply(exchange, 200, "application/json; charset=utf-8", Json.write(result));
+        } catch (IllegalArgumentException e) {
+            reply(exchange, e.getMessage() != null && e.getMessage().startsWith("Unknown server") ? 404 : 400, "application/json", error(e.getMessage()));
+        } catch (IllegalStateException e) {
+            reply(exchange, 409, "application/json", error(e.getMessage()));
+        }
+    }
+
     private void action(HttpExchange exchange, SwarmManager manager) throws IOException {
+        var commandMatcher = COMMAND_PATH.matcher(exchange.getRequestURI().getPath());
+        if (commandMatcher.matches()) { command(exchange, manager, commandMatcher.group(1)); return; }
         var matcher = ACTION_PATH.matcher(exchange.getRequestURI().getPath());
         if (!matcher.matches()) { reply(exchange, 404, "application/json", error("Not found")); return; }
         String serverId = matcher.group(1), what = matcher.group(2);
@@ -204,7 +219,7 @@ public final class UiServer implements AutoCloseable {
 
     private void activity(HttpExchange exchange, SwarmManager manager) throws IOException {
         String path = exchange.getRequestURI().getPath();
-        if (ACTION_PATH.matcher(path).matches()) { reply(exchange, 405, "text/plain", "Only POST is supported here"); return; }
+        if (ACTION_PATH.matcher(path).matches() || COMMAND_PATH.matcher(path).matches()) { reply(exchange, 405, "text/plain", "Only POST is supported here"); return; }
         var members = MEMBERS_PATH.matcher(path);
         if (members.matches()) { fullMembers(exchange, manager, members.group(1)); return; }
         var matcher = ACTIVITY_PATH.matcher(path);

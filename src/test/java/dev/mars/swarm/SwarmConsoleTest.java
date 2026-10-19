@@ -184,6 +184,30 @@ class SwarmConsoleTest {
     }
 
     @Test
+    void callSendsOneCommandToOneServerAndShowsTheRawReplyOrTheFailure() throws Exception {
+        String output = run("""
+                start one 2
+                call one-Server-002 hello
+                call one-Server-001 {"instruction":"nope","parameters":{}}
+                server stop one-Server-002
+                call one-Server-002 hello
+                call missing-Server-001 hello
+                call one-Server-001
+                quit
+                """);
+        assertTrue(output.contains("Reply | {"), output);
+        assertTrue(output.contains("Received: hello"), output);
+        assertTrue(output.contains("Status | OK"), output);
+        assertTrue(output.contains("UNKNOWN_INSTRUCTION"), output);
+        assertTrue(output.contains("Status | ERROR"), output);
+        assertTrue(output.contains("Status | FAILED"), output);
+        assertTrue(output.contains("Connection refused"), output);
+        assertTrue(output.contains("Reply | (none)"), output);
+        assertTrue(output.contains("Unknown server: missing-Server-001"), output);
+        assertTrue(output.contains("Usage: call <server id> <text or JSON>"), output);
+    }
+
+    @Test
     void addAndRemoveGrowAndShrinkASwarmAndReportMisuse() throws Exception {
         String output = run("""
                 start grow 2

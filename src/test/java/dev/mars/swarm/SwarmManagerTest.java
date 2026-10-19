@@ -263,6 +263,55 @@ class SwarmManagerTest {
     }
 
     @Test
+    void aCommandToOneServerReturnsTheReplyTheErrorOrWhyThereWasNone() throws Exception {
+        try (var manager = new SwarmManager()) {
+            manager.start("cmd", 2);
+
+            var plain = manager.command("cmd-Server-002", "hello there");
+            assertEquals(Boolean.TRUE, plain.get("ok"), plain.toString());
+            assertEquals("OK", plain.get("status"));
+            assertEquals("Received: hello there", plain.get("result"));
+            assertEquals("cmd-Server-002", plain.get("replyServerId"));
+            assertTrue(((Number) plain.get("connectionId")).longValue() > 0);
+            assertTrue(plain.get("sent").toString().contains("\"instruction\":\"echo\""), "Plain text is sent as an echo command");
+            assertTrue(plain.get("raw").toString().contains("\"status\":\"OK\""));
+            assertNull(plain.get("failure"));
+
+            var json = manager.command("cmd-Server-001", "{\"instruction\":\"echo\",\"parameters\":{\"text\":\"x\"}}");
+            assertEquals("Received: x", json.get("result"));
+
+            var unknown = manager.command("cmd-Server-001", "{\"instruction\":\"nope\",\"parameters\":{}}");
+            assertEquals(Boolean.FALSE, unknown.get("ok"));
+            assertEquals("ERROR", unknown.get("status"));
+            assertEquals("UNKNOWN_INSTRUCTION", unknown.get("errorCode"));
+            assertNotNull(unknown.get("errorMessage"));
+            assertNull(unknown.get("failure"), "An error reply is a reply, not a failure");
+
+            var invalid = manager.command("cmd-Server-001", "{\"instruction\":\"echo\",\"parameters\":{}}");
+            assertEquals("ERROR", invalid.get("status"));
+            assertEquals("INVALID_PARAMETERS", invalid.get("errorCode"));
+
+            var malformed = manager.command("cmd-Server-001", "{not json");
+            assertEquals("{not json", malformed.get("sent"), "Sent exactly as typed");
+            assertTrue(malformed.get("note").toString().startsWith("Sent as typed"), malformed.toString());
+            assertEquals("ERROR", malformed.get("status"), "The server's own complaint comes back: " + malformed);
+            assertEquals("INVALID_REQUEST", malformed.get("errorCode"));
+
+            manager.stopServer("cmd-Server-002");
+            var stopped = manager.command("cmd-Server-002", "anyone there");
+            assertEquals(Boolean.FALSE, stopped.get("ok"));
+            assertEquals("FAILED", stopped.get("status"));
+            assertTrue(stopped.get("failure").toString().contains("Connection refused"), stopped.toString());
+            assertNull(stopped.get("raw"));
+
+            assertThrows(IllegalArgumentException.class, () -> manager.command("cmd-Server-009", "x"));
+            assertThrows(IllegalArgumentException.class, () -> manager.command("cmd-Server-001", "  "));
+            assertThrows(IllegalArgumentException.class, () -> manager.command("cmd-Server-001", "a\nb"));
+            assertThrows(IllegalArgumentException.class, () -> manager.command("cmd-Server-001", "x".repeat(20_000)));
+        }
+    }
+
+    @Test
     void addingServersNumbersThemAfterTheHighestIdAndTheyAnswer() throws Exception {
         try (var manager = new SwarmManager()) {
             manager.start("grow", 2);

@@ -269,6 +269,39 @@ class UiServerTest {
     }
 
     @Test
+    void thePageCanSendACommandToOneServerAndSeeTheReplyOrTheError() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            manager.start("cmd", 2);
+            var ok = postJson(ui, "/api/servers/cmd-Server-002/command", "{\"text\":\"hi\"}");
+            assertEquals(200, ok.statusCode(), ok.body());
+            var reply = Json.read(ok.body());
+            assertTrue(reply.get("ok").asBoolean());
+            assertEquals("Received: hi", reply.get("result").asText());
+            assertEquals("cmd-Server-002", reply.get("replyServerId").asText());
+            assertTrue(reply.get("raw").asText().contains("\"status\":\"OK\""));
+
+            var error = Json.read(postJson(ui, "/api/servers/cmd-Server-001/command",
+                    "{\"text\":\"{\\\"instruction\\\":\\\"nope\\\",\\\"parameters\\\":{}}\"}").body());
+            assertFalse(error.get("ok").asBoolean());
+            assertEquals("UNKNOWN_INSTRUCTION", error.get("errorCode").asText());
+
+            manager.stopServer("cmd-Server-002");
+            var down = postJson(ui, "/api/servers/cmd-Server-002/command", "{\"text\":\"hi\"}");
+            assertEquals(200, down.statusCode(), "A server that does not answer is a result, not an HTTP error");
+            assertEquals("FAILED", Json.read(down.body()).get("status").asText());
+            assertTrue(Json.read(down.body()).get("failure").asText().contains("refused"));
+
+            assertEquals(404, postJson(ui, "/api/servers/cmd-Server-009/command", "{\"text\":\"hi\"}").statusCode());
+            assertEquals(400, postJson(ui, "/api/servers/cmd-Server-001/command", "{}").statusCode(), "No text");
+            assertEquals(400, postJson(ui, "/api/servers/cmd-Server-001/command", "{\"text\":\"a\\nb\"}").statusCode(), "Two lines");
+            assertEquals(405, get(ui, "/api/servers/cmd-Server-001/command").statusCode());
+            var foreign = HttpRequest.newBuilder(uri(ui, "/api/servers/cmd-Server-001/command")).header("Origin", "https://evil.example")
+                    .header(UiServer.ACTION_HEADER, "1").POST(HttpRequest.BodyPublishers.ofString("{\"text\":\"hi\"}")).build();
+            assertEquals(403, http.send(foreign, HttpResponse.BodyHandlers.ofString()).statusCode());
+        }
+    }
+
+    @Test
     void thePageCanAddServersToASwarmAndRemoveOne() throws Exception {
         try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0, new SocketActivity())) {
             manager.start("grow", 2);

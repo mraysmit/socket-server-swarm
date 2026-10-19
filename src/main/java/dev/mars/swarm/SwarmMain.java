@@ -14,6 +14,7 @@ public final class SwarmMain {
             Swarm commands:
               start <name> <servers>           Start 1-100 servers concurrently on automatic ports
               add <name> [servers]             Add servers (default 1) to a running swarm
+              call <id> <text or JSON>         Send one command to one server and show the raw reply or error
               list                             List all swarms and endpoints
               status [name]                    Check admin status of one or all swarms
               send <name> <text or JSON>        Send a command to every server in a swarm
@@ -147,6 +148,16 @@ public final class SwarmMain {
                         var endpoints = manager.start(words[1], number(words[2], "Server count"));
                         output.println("Swarm started | name=" + words[1] + " | servers=" + endpoints.size());
                         endpoints.forEach(output::println);
+                    }
+                    case "call" -> {
+                        String[] parts = line.split("\\s+", 3);
+                        require(parts, 3, "call <server id> <text or JSON>");
+                        var result = manager.command(parts[1], parts[2]);
+                        output.println("Sent  | " + result.get("sent"));
+                        if (result.get("note") != null) { output.println("Note  | " + result.get("note")); }
+                        output.println("Reply | " + (result.get("raw") == null ? "(none)" : result.get("raw")));
+                        output.println("Status | " + result.get("status") + " | " + result.get("elapsedMillis") + " ms"
+                                + (result.get("failure") == null ? "" : " | " + result.get("failure")));
                     }
                     case "add" -> {
                         if (words.length < 2 || words.length > 3) { throw new IllegalArgumentException("Usage: add <name> [servers]"); }

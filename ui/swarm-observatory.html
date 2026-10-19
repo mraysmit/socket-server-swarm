@@ -175,6 +175,22 @@ body.resizing-dock{cursor:ns-resize;user-select:none}
 .tab:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .grow{flex:1}
 .dock-body{flex:1;min-height:0;overflow:auto}
+#pane-command{display:flex;flex-direction:column;overflow:hidden}
+.cmd-form{display:flex;gap:6px;padding:8px 14px 4px;flex-wrap:wrap;align-items:center}
+.cmd-form select{flex:0 1 220px;min-width:0}
+.cmd-form input{flex:1 1 280px;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-family:var(--mono);font-size:12.5px;color:inherit}
+.cmd-form input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.cmd-presets{display:flex;gap:6px;padding:2px 14px 8px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--mute)}
+#cmd-log{flex:1;min-height:0;overflow:auto;border-top:1px solid var(--line)}
+.cmd-entry{padding:8px 14px;border-bottom:1px solid var(--line)}
+.cmd-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--mute)}
+.cmd-sent,.cmd-body{font-family:var(--mono);font-size:12.5px;margin:4px 0 0;white-space:pre-wrap;word-break:break-all}
+.cmd-sent{color:var(--mute)}
+.cmd-body.bad{color:var(--bad)}
+.cmd-note{font-size:12px;color:var(--warn);margin:4px 0 0}
+.cmd-entry details{margin-top:4px;font-size:12px;color:var(--mute)}
+.cmd-entry details pre{margin:4px 0 0;white-space:pre-wrap;word-break:break-all;font-family:var(--mono)}
+.p-FAILED{color:var(--bad)} .p-UNPARSED{color:var(--warn)}
 #pane-activity{display:flex;flex-direction:column;overflow:hidden}
 #pane-activity .act-top{padding:8px 14px}
 #pane-activity .feedwrap{flex:1;min-height:0}
@@ -301,6 +317,7 @@ body{margin:0}
         <div class="dock-grip" id="dock-grip" role="separator" aria-orientation="horizontal" aria-label="Resize the panel" aria-valuemin="150" tabindex="0" title="Drag up or down to resize. Arrow keys resize too; double-click resets."></div>
         <div class="dock-bar" role="tablist">
           <button class="tab" id="tab-activity" role="tab" aria-selected="true" aria-controls="pane-activity" data-tab="activity" title="Each row is one connection to the server's main port. The server logs who connected, the instruction, the message ID and the reply status. It does not log message bodies.">Socket activity</button>
+          <button class="tab" id="tab-command" role="tab" aria-selected="false" aria-controls="pane-command" data-tab="command" title="Send one command to any server and see exactly what comes back" hidden>Command</button>
           <button class="tab" id="tab-events" role="tab" aria-selected="false" aria-controls="pane-events" data-tab="events">Events</button>
           <span class="grow"></span>
           <button class="btn small" id="act-pause" aria-pressed="false" title="Freeze the feed so you can read it; press again to catch up" hidden>Pause feed</button>
@@ -314,6 +331,22 @@ body{margin:0}
             <div class="spark" id="act-spark"></div>
           </div>
           <div class="feedwrap tablewrap" id="act-feed"></div>
+        </div>
+        <div class="dock-body" id="pane-command" role="tabpanel" hidden>
+          <form class="cmd-form" id="cmd-form" autocomplete="off">
+            <label class="sr" for="cmd-target">Send to</label><select id="cmd-target" title="The server that receives the command. Selecting a server anywhere else changes it too."></select>
+            <label class="sr" for="cmd-text">Command</label><input id="cmd-text" spellcheck="false" placeholder="text (sent as an echo) or a JSON request" title="Plain text is sent as an echo command. A JSON object with instruction and parameters is sent as a request. Up and down arrows recall earlier commands.">
+            <button class="btn" id="cmd-go" type="submit">Send</button>
+            <button class="btn small" id="cmd-clear" type="button" title="Clear the history below">Clear</button>
+          </form>
+          <div class="cmd-presets" id="cmd-presets"><span>Try:</span>
+            <button class="btn small" type="button" data-fill="hello">echo</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"status"}}'>gossip status</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"members"}}'>gossip members</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"leave"}}'>gossip leave</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"nope","parameters":{}}'>unknown instruction</button>
+          </div>
+          <div id="cmd-log" aria-live="polite"></div>
         </div>
         <div class="dock-body" id="pane-events" role="tabpanel" hidden>
           <ol class="log" id="log"></ol>
@@ -756,7 +789,7 @@ function renderAll(){
     banner.hidden=!partition;
     banner.textContent=PARTITION_NOTE;
   }
-  renderGraph();renderSwarms();renderPanel();renderLog();renderActivity();renderControls();
+  renderGraph();renderSwarms();renderPanel();renderLog();renderActivity();renderControls();renderCommand();
   const cs=$('#canvas-sel');
   cs.hidden=!(focusMode&&sel);
   if(!cs.hidden)setHTML(cs,`<span>${esc(sel.id)}</span>${pill(worker(sel))}`);
@@ -770,7 +803,8 @@ const PARTITION_NOTE=$('#banner').textContent;
 /* fromList: chosen from the server list or Find, so bring it into view if it is off the canvas */
 function select(id,fromList){
   sel=byId(id)||sel;
-  if(LIVE&&(!dockOpen||dockTab!=='activity')){dockTab='activity';dockOpen=true;showDock();}
+  /* clicking a server shows its socket traffic, unless the Command tab is in use: then the command's target just changes */
+  if(LIVE&&(!dockOpen||dockTab==='events')){if(dockTab==='events')dockTab='activity';dockOpen=true;showDock();}
   if(fromList&&sel&&offscreen(sel))centerOn(sel);
   renderAll();
   if(LIVE)refreshSelected().then(renderAll);
@@ -874,6 +908,59 @@ $('#ctl-test').addEventListener('submit',async e=>{
     +(j.elapsedMillis>0?' ('+Math.round(j.requests*1000/j.elapsedMillis)+' requests/s)':'')
     +(j.failed?'\n'+j.failed+' failed: '+quote(j.failures[0]||''):''),!j.ok);
 });
+/* live mode: send one command to any server and show exactly what came back */
+const cmdLog=[],cmdHist=[];let cmdBusy=false,cmdPos=-1;
+function renderCommand(){
+  if(!LIVE||dockTab!=='command'||!dockOpen)return;
+  const tg=$('#cmd-target'),ids=nodes.map(n=>n.id),sig=ids.join('|');
+  if(tg._sig!==sig){tg._sig=sig;tg.innerHTML=ids.map(i=>'<option>'+esc(i)+'</option>').join('')||'<option value="">no servers</option>';}
+  if(sel&&tg.value!==sel.id&&document.activeElement!==tg)tg.value=sel.id;
+  $('#cmd-go').disabled=cmdBusy||!ids.length;
+  tg.disabled=!ids.length;
+  const html=cmdLog.map(c=>{
+    const body=c.failure&&!c.raw?c.failure
+      :c.status==='OK'?(typeof c.result==='string'?c.result:JSON.stringify(c.result,null,2))
+      :c.errorCode?c.errorCode+': '+c.errorMessage:(c.failure||c.raw||'');
+    const bad=c.status!=='OK';
+    return '<article class="cmd-entry"><div class="cmd-head"><span>'+clock(c.t)+'</span><span>→ '+esc(c.serverId)+'</span>'+pill(c.status)+'<span>'+(c.elapsedMillis===undefined?'':c.elapsedMillis+' ms')+'</span>'
+      +(c.connectionId?'<span>connection #'+c.connectionId+'</span>':'')+'</div>'
+      +'<p class="cmd-sent">sent: '+esc(c.sent||c.typed)+'</p>'
+      +(c.note?'<p class="cmd-note">'+esc(c.note)+'</p>':'')
+      +'<pre class="cmd-body'+(bad?' bad':'')+'">'+esc(body)+'</pre>'
+      +(c.failure&&c.raw?'<p class="cmd-note">'+esc(c.failure)+'</p>':'')
+      +(c.raw?'<details><summary>raw reply</summary><pre>'+esc(c.raw)+'</pre></details>':'')+'</article>';
+  }).join('')||'<p class="hint" style="border:0">Nothing sent yet. Choose a server, type a command and press Send. What the server answers, or why it did not, appears here.</p>';
+  setHTML($('#cmd-log'),html);
+}
+$('#cmd-target').addEventListener('change',e=>{if(e.target.value)select(e.target.value,true);});
+$('#cmd-presets').addEventListener('click',e=>{
+  const b=e.target.closest('[data-fill]');if(!b)return;
+  const t=$('#cmd-text');t.value=b.dataset.fill;t.focus();
+});
+$('#cmd-clear').addEventListener('click',()=>{cmdLog.length=0;renderCommand();});
+$('#cmd-text').addEventListener('keydown',e=>{
+  if(e.key!=='ArrowUp'&&e.key!=='ArrowDown')return;
+  if(!cmdHist.length)return;
+  e.preventDefault();
+  cmdPos=e.key==='ArrowUp'?Math.min(cmdHist.length-1,cmdPos+1):Math.max(-1,cmdPos-1);
+  e.target.value=cmdPos<0?'':cmdHist[cmdPos];
+});
+$('#cmd-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const tg=$('#cmd-target').value,text=$('#cmd-text').value.trim();
+  if(cmdBusy||!tg||!text)return;
+  cmdBusy=true;renderCommand();
+  const entry={t:Date.now(),serverId:tg,typed:text,status:'FAILED'};
+  try{
+    const r=await fetch('/api/servers/'+encodeURIComponent(tg)+'/command',{method:'POST',headers:{'X-Swarm-UI':'1','Content-Type':'application/json'},body:JSON.stringify({text}),cache:'no-store'});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok)Object.assign(entry,j);else entry.failure=j.error||('The harness answered HTTP '+r.status);
+  }catch{entry.failure='Could not reach the harness.';}
+  cmdLog.unshift(entry);if(cmdLog.length>100)cmdLog.pop();
+  if(cmdHist[0]!==text){cmdHist.unshift(text);if(cmdHist.length>50)cmdHist.pop();}
+  cmdPos=-1;cmdBusy=false;
+  renderCommand();
+});
 const stage=$('#stage'),canvas=$('#canvas');
 let pan=null;
 stage.addEventListener('pointerdown',e=>{
@@ -932,9 +1019,9 @@ $('#find').addEventListener('keydown',e=>{
 /* dock: tabs and collapse */
 function showDock(){
   const live=LIVE;
-  $('#tab-activity').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);$('#act-pause').hidden=!(live&&dockTab==='activity'&&dockOpen);
+  $('#tab-activity').hidden=!live;$('#tab-command').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);$('#act-pause').hidden=!(live&&dockTab==='activity'&&dockOpen);
   if(!live)dockTab='events';
-  for(const t of['activity','events']){
+  for(const t of['activity','command','events']){
     $('#tab-'+t).setAttribute('aria-selected',dockTab===t);
     $('#pane-'+t).hidden=dockTab!==t;
   }

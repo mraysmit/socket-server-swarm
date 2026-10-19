@@ -144,6 +144,18 @@ public final class SwarmManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Sends one command to any listed server, running or not, and returns everything that came back: the line sent, the raw
+     * reply, its parsed fields, the error if there was one, and why there was no reply if there was none. See {@link ServerCommand}.
+     */
+    public Map<String, Object> command(String serverId, String input) {
+        ensureOpen();
+        var endpoint = list().values().stream().flatMap(List::stream)
+                .filter(e -> e.serverId().equals(serverId)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown server: " + serverId));
+        return ServerCommand.run(endpoint, input);
+    }
+
     /** Runs one command on one server over a kept-open connection; an error reply is returned, not thrown. */
     CommandReply execute(ServerEndpoint endpoint, String instruction, Map<String, Object> parameters) throws IOException {
         return connections.execute(endpoint, instruction, parameters);
