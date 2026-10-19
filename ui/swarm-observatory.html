@@ -381,12 +381,12 @@ body{margin:0}
         <div class="dock-body" id="pane-command" role="tabpanel" hidden>
           <form class="cmd-form" id="cmd-form" autocomplete="off">
             <label class="sr" for="cmd-target">Send to</label><select id="cmd-target" title="The server that receives the command. Selecting a server anywhere else changes it too."></select>
-            <label class="sr" for="cmd-text">Command</label><input id="cmd-text" spellcheck="false" placeholder="text (sent as an echo) or a JSON request" title="Plain text is sent as an echo command. A JSON object with instruction and parameters is sent as a request. Up and down arrows recall earlier commands.">
+            <label class="sr" for="cmd-text">Command</label><input id="cmd-text" spellcheck="false" placeholder='plain text (sent as an echo), or {"instruction":"echo","parameters":{"text":"hello"}}' title="Plain text is sent as an echo command. A JSON object with instruction and parameters is sent as a request. Up and down arrows recall earlier commands.">
             <button class="btn" id="cmd-go" type="submit">Send</button>
             <button class="btn small" id="cmd-clear" type="button" title="Clear the history below">Clear</button>
           </form>
           <div class="cmd-presets" id="cmd-presets"><span>Try:</span>
-            <button class="btn small" type="button" data-fill="hello">echo</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"echo","parameters":{"text":"hello"}}'>echo</button>
             <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"status"}}'>gossip status</button>
             <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"members"}}'>gossip members</button>
             <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"leave"}}'>gossip leave</button>
