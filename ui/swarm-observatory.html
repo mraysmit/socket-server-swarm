@@ -205,6 +205,23 @@ input.find:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .ctl select{flex:1 1 90px;min-width:0}
 .ctl .result{font-size:12px;color:var(--mute);margin:0;white-space:pre-wrap;word-break:break-word}
 .ctl .result.bad{color:var(--bad)}
+/* each set of operations is its own boxed group with a small heading; the actions that follow the swarm picker belong to it */
+.ctl{gap:10px}
+.ctl .grp{border:1px solid var(--line);border-radius:8px;padding:9px 10px 10px;display:flex;flex-direction:column;gap:8px}
+.ctl .grp h3{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.ctl .sub{border-top:1px solid var(--soft);padding-top:8px;display:flex;flex-direction:column;gap:6px}
+.ctl .sub h4{margin:0;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--ink)}
+.ctl .gh{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.info{flex:none;width:18px;height:18px;padding:0;border:1px solid var(--line);border-radius:50%;background:none;color:var(--mute);font:italic 600 11px/1 var(--mono);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.info:hover,.info[aria-expanded="true"]{border-color:var(--accent);color:var(--accent)}
+.info:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.insp-tools{display:flex;align-items:center;justify-content:space-between;padding:10px 14px 0;font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.zoom .info,.bar-controls .info{margin:0 2px}
+.dock-bar .info{margin:0 4px 0 -2px}
+.pop{position:fixed;z-index:60;width:min(320px,calc(100vw - 16px));padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(20,32,43,.16);font-family:var(--sans);font-size:12px;line-height:1.45;color:var(--mute)}
+.pop p{margin:0}.pop p+p{margin-top:6px}.pop b{font-weight:600;color:var(--ink)}
+.info-text{margin:0;font-family:var(--sans);font-size:12px;line-height:1.45;color:var(--mute);overflow-wrap:anywhere}
+.info-text b{font-weight:600;color:var(--ink)}
 
 /* log */
 .log{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:12px}
@@ -232,6 +249,8 @@ body{margin:0}
 </head>
 <body>
 
+<div class="pop" id="pop" role="note" hidden></div>
+
 <div class="wrap">
   <div class="top">
     <div class="brand">
@@ -242,45 +261,71 @@ body{margin:0}
     <div class="bar-controls" role="toolbar" aria-label="Controls">
       <label class="sr" for="find">Find a server</label>
       <input class="find" id="find" type="search" placeholder="Find a server" autocomplete="off" title="Type part of a server ID and press Enter to select it and bring it into view">
+      <button class="info" type="button" data-info="find" aria-expanded="false" aria-label="About find" title="About find">i</button>
       <span class="sep"></span>
       <button class="btn" id="pause" aria-pressed="false">Pause</button>
+      <button class="info" type="button" data-info="pause" aria-expanded="false" aria-label="About pause" title="About pause">i</button>
       <label class="sr" for="speed">Speed</label>
       <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+      <button class="info simonly" type="button" data-info="speed" aria-expanded="false" aria-label="About speed" title="About speed">i</button>
       <span class="sep"></span>
       <button class="btn" id="partition" aria-pressed="false" title="Block exchanges between two halves of every swarm">Partition</button>
+      <button class="info simonly" type="button" data-info="partition" aria-expanded="false" aria-label="About partition" title="About partition">i</button>
       <button class="btn" id="newswarm" title="console: start &lt;name&gt; 3">New swarm</button>
+      <button class="info simonly" type="button" data-info="newswarm" aria-expanded="false" aria-label="About new swarm" title="About new swarm">i</button>
       <button class="btn" id="addserver" title="Start one more server in the selected swarm">Add server</button>
+      <button class="info simonly" type="button" data-info="addserver" aria-expanded="false" aria-label="About add server" title="About add server">i</button>
     </div>
   </div>
   <div class="banner" id="banner" hidden>Partition active: servers marked A and B cannot exchange. Watch suspicion rise, then lift the partition to see views converge again.</div>
 
   <div class="app">
     <aside class="card" aria-label="Swarms">
-      <header><h2>Swarms</h2></header>
+      <header><h2>Swarms</h2><button class="info" type="button" data-info="swarms" aria-expanded="false" aria-label="About the swarm list" title="About the swarm list">i</button></header>
       <div class="ctl" id="ctl" hidden>
-        <form class="row" id="ctl-start" aria-label="Start a swarm">
-          <label class="sr" for="ctl-name">Swarm name</label><input class="w-name" id="ctl-name" placeholder="name" autocomplete="off" spellcheck="false">
-          <label class="sr" for="ctl-count">Servers</label><input class="w-num" id="ctl-count" type="number" min="1" max="100" value="5" title="Servers, 1 to 100">
-          <button class="btn" id="ctl-go" type="submit" title="Start the swarm. 100 servers take several seconds.">Start</button>
-        </form>
-        <div class="row">
-          <label class="sr" for="ctl-swarm">Swarm</label><select id="ctl-swarm" aria-label="Swarm to act on"></select>
-          <button class="btn danger" id="ctl-stop" type="button" title="Close every server in this swarm">Stop</button>
-          <button class="btn danger" id="ctl-stopall" type="button" title="Close every server in every swarm">Stop all</button>
-        </div>
-        <form class="row" id="ctl-add" aria-label="Add servers to the swarm">
-          <label class="sr" for="ctl-addn">Servers to add</label><input class="w-num" id="ctl-addn" type="number" min="1" max="100" value="1" title="Servers to add to the swarm chosen above">
-          <button class="btn" id="ctl-addgo" type="submit" title="Start more servers in the swarm chosen above">Add servers</button>
-        </form>
-        <form class="row" id="ctl-send" aria-label="Send a message">
-          <label class="sr" for="ctl-text">Message</label><input class="w-text" id="ctl-text" placeholder="message or JSON" autocomplete="off" spellcheck="false" title="Plain text is echoed. A full JSON request is sent as it is.">
-          <button class="btn" id="ctl-sendgo" type="submit" title="Send to every server in the swarm">Send</button>
-        </form>
-        <form class="row" id="ctl-test" aria-label="Run a load test">
-          <label class="sr" for="ctl-req">Requests</label><input class="w-num" id="ctl-req" type="number" min="1" max="100000" value="1000" title="Requests, 1 to 100,000">
-          <label class="sr" for="ctl-conc">Clients</label><input class="w-num" id="ctl-conc" type="number" min="1" max="1000" value="100" title="Clients at once, 1 to 1,000">
-          <button class="btn" id="ctl-testgo" type="submit" title="Verified echo load test across the swarm">Load test</button>
-        </form>
+        <section class="grp" aria-labelledby="g-start">
+          <div class="gh"><h3 id="g-start">Start a swarm</h3><button class="info" type="button" aria-expanded="false" aria-controls="i-start" aria-label="About start a swarm" title="About start a swarm">i</button></div>
+          <p class="info-text" id="i-start" hidden>Starts real socket servers inside this program, from 1 to 100, each on ports the operating system picks. The name must begin with a letter. When the harness was started with gossip, the servers find each other through the first one.</p>
+          <form class="row" id="ctl-start" aria-label="Start a swarm">
+            <label class="sr" for="ctl-name">Swarm name</label><input class="w-name" id="ctl-name" placeholder="name" autocomplete="off" spellcheck="false">
+            <label class="sr" for="ctl-count">Servers</label><input class="w-num" id="ctl-count" type="number" min="1" max="100" value="5" title="Servers, 1 to 100">
+            <button class="btn" id="ctl-go" type="submit" title="Start the swarm. 100 servers take several seconds.">Start</button>
+          </form>
+        </section>
+        <section class="grp" aria-labelledby="g-swarm">
+          <div class="gh"><h3 id="g-swarm">Selected swarm</h3><button class="info" type="button" aria-expanded="false" aria-controls="i-swarm" aria-label="About selected swarm" title="About selected swarm">i</button></div>
+          <p class="info-text" id="i-swarm" hidden>Chooses which swarm the actions in this box apply to. It follows the server you select. <b>Stop</b> closes every server in the chosen swarm. <b>Stop all</b> closes every swarm.</p>
+          <div class="row">
+            <label class="sr" for="ctl-swarm">Swarm</label><select id="ctl-swarm" aria-label="Swarm to act on"></select>
+            <button class="btn danger" id="ctl-stop" type="button" title="Close every server in this swarm">Stop</button>
+            <button class="btn danger" id="ctl-stopall" type="button" title="Close every server in every swarm">Stop all</button>
+          </div>
+          <div class="sub">
+            <div class="gh"><h4 id="g-add">Add servers</h4><button class="info" type="button" aria-expanded="false" aria-controls="i-add" aria-label="About add servers" title="About add servers">i</button></div>
+            <p class="info-text" id="i-add" hidden>Starts more servers in the chosen swarm. They are numbered after the highest number it has had, and with gossip they join through the swarm’s first server. A swarm holds at most 100 servers.</p>
+            <form class="row" id="ctl-add" aria-labelledby="g-add">
+              <label class="sr" for="ctl-addn">Servers to add</label><input class="w-num" id="ctl-addn" type="number" min="1" max="100" value="1" title="Servers to add to the swarm chosen above">
+              <button class="btn" id="ctl-addgo" type="submit" title="Start more servers in the swarm chosen above">Add</button>
+            </form>
+          </div>
+          <div class="sub">
+            <div class="gh"><h4 id="g-send">Send to every server</h4><button class="info" type="button" aria-expanded="false" aria-controls="i-send" aria-label="About send to every server" title="About send to every server">i</button></div>
+            <p class="info-text" id="i-send" hidden>Sends one message to each server in the chosen swarm and reports how many answered OK. Plain text is sent as an echo; a JSON request is sent as it is. To talk to one server and see its raw reply, use the Command tab.</p>
+            <form class="row" id="ctl-send" aria-labelledby="g-send">
+              <label class="sr" for="ctl-text">Message</label><input class="w-text" id="ctl-text" placeholder="message or JSON" autocomplete="off" spellcheck="false" title="Plain text is echoed. A full JSON request is sent as it is.">
+              <button class="btn" id="ctl-sendgo" type="submit" title="Send to every server in the swarm">Send</button>
+            </form>
+          </div>
+          <div class="sub">
+            <div class="gh"><h4 id="g-test">Load test</h4><button class="info" type="button" aria-expanded="false" aria-controls="i-test" aria-label="About load test" title="About load test">i</button></div>
+            <p class="info-text" id="i-test" hidden>Checks that every server answers correctly under load. Sends the <b>requests</b> you set, as echo messages spread evenly across the chosen swarm, with up to that many <b>clients</b> asking at once. Each reply is checked against what was sent. Shows how many were correct, the time taken and the requests per second. It changes nothing in the swarm.</p>
+            <form class="row" id="ctl-test" aria-labelledby="g-test">
+              <label class="sr" for="ctl-req">Requests</label><input class="w-num" id="ctl-req" type="number" min="1" max="100000" value="1000" title="Requests, 1 to 100,000">
+              <label class="sr" for="ctl-conc">Clients</label><input class="w-num" id="ctl-conc" type="number" min="1" max="1000" value="100" title="Clients at once, 1 to 1,000">
+              <button class="btn" id="ctl-testgo" type="submit" title="Verified echo load test across the swarm">Run</button>
+            </form>
+          </div>
+        </section>
         <p class="result" id="ctl-result" role="status"></p>
       </div>
       <div class="swarms" id="swarms"></div>
@@ -299,6 +344,7 @@ body{margin:0}
           <button class="btn" id="zin" title="Zoom in (+)" aria-label="Zoom in">+</button>
           <button class="btn" id="zfit" title="Fit every server in view (0)">Fit</button>
           <button class="btn" id="zfocus" aria-pressed="false" title="Hide the side panels to give the canvas the whole window (F)">Focus</button>
+          <button class="info" type="button" data-info="canvas" aria-expanded="false" aria-label="About the canvas controls" title="About the canvas controls">i</button>
         </div>
         <details class="legend">
           <summary>Legend</summary>
@@ -316,12 +362,12 @@ body{margin:0}
       <section class="dock" id="dock" aria-label="Socket activity and events">
         <div class="dock-grip" id="dock-grip" role="separator" aria-orientation="horizontal" aria-label="Resize the panel" aria-valuemin="150" tabindex="0" title="Drag up or down to resize. Arrow keys resize too; double-click resets."></div>
         <div class="dock-bar" role="tablist">
-          <button class="tab" id="tab-activity" role="tab" aria-selected="true" aria-controls="pane-activity" data-tab="activity" title="Each row is one connection to the server's main port. The server logs who connected, the instruction, the message ID and the reply status. It does not log message bodies.">Socket activity</button>
-          <button class="tab" id="tab-command" role="tab" aria-selected="false" aria-controls="pane-command" data-tab="command" title="Send one command to any server and see exactly what comes back" hidden>Command</button>
-          <button class="tab" id="tab-events" role="tab" aria-selected="false" aria-controls="pane-events" data-tab="events">Events</button>
+          <button class="tab" id="tab-activity" role="tab" aria-selected="true" aria-controls="pane-activity" data-tab="activity" title="Each row is one connection to the server's main port. The server logs who connected, the instruction, the message ID and the reply status. It does not log message bodies.">Socket activity</button><button class="info" id="info-activity" type="button" data-info="activity" aria-expanded="false" aria-label="About socket activity" title="About socket activity">i</button>
+          <button class="tab" id="tab-command" role="tab" aria-selected="false" aria-controls="pane-command" data-tab="command" title="Send one command to any server and see exactly what comes back" hidden>Command</button><button class="info" id="info-command" type="button" data-info="command" aria-expanded="false" aria-label="About the command tab" title="About the command tab">i</button>
+          <button class="tab" id="tab-events" role="tab" aria-selected="false" aria-controls="pane-events" data-tab="events">Events</button><button class="info" type="button" data-info="events" aria-expanded="false" aria-label="About events" title="About events">i</button>
           <span class="grow"></span>
           <button class="btn small" id="act-pause" aria-pressed="false" title="Freeze the feed so you can read it; press again to catch up" hidden>Pause feed</button>
-          <label class="check" id="act-gossip-label"><input type="checkbox" id="act-gossip" checked> Show gossip exchanges</label>
+          <label class="check" id="act-gossip-label" title="Show the gossip exchanges between servers in the feed. Untick to hide them."><input type="checkbox" id="act-gossip" checked> Show gossip</label>
           <button class="btn small" id="dock-max" aria-pressed="false" title="Make the panel as tall as the window allows, or restore it">Expand</button>
           <button class="btn small" id="dock-toggle" aria-expanded="true" title="Collapse or expand this panel">Hide</button>
         </div>
@@ -355,8 +401,10 @@ body{margin:0}
     </main>
 
     <aside class="card" aria-label="Server inspector">
+      <div class="insp-tools insp-top"><span>Server</span><button class="info" type="button" data-info="server" aria-expanded="false" aria-label="About the server panel" title="About the server panel">i</button></div>
       <div id="insp-head"></div>
       <div id="insp-facts"></div>
+      <div class="insp-tools"><span>Server actions</span><button class="info" type="button" data-info="actions" aria-expanded="false" aria-label="About the server actions" title="About the server actions">i</button></div>
       <div id="insp-actions"></div>
       <div class="tablewrap" id="insp-table"></div>
     </aside>
@@ -753,7 +801,7 @@ function renderPanel(){
     setHTML($('#insp-facts'),'');setHTML($('#insp-actions'),'');setHTML($('#insp-table'),'');
     return;
   }
-  setHTML($('#insp-head'),`<div class="insp-head"><h2 class="mono" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:500">Server</h2><div class="id">${o.id}</div><div class="pillrow">${pill(worker(o))}${pill(o.dep)}</div></div>`);
+  setHTML($('#insp-head'),`<div class="insp-head"><div class="id">${o.id}</div><div class="pillrow">${pill(worker(o))}${pill(o.dep)}</div></div>`);
   const k=know(o);
   const noGossip=LIVE&&!o.gossip;
   const facts=noGossip
@@ -961,6 +1009,50 @@ $('#cmd-form').addEventListener('submit',async e=>{
   cmdPos=-1;cmdBusy=false;
   renderCommand();
 });
+/* the small i on toolbars and panels opens one shared popover; the sidebar's own icons expand in place (below) */
+const pop=$('#pop');let popFor=null;
+const PANEL_TIP='<p><b>Panel</b> Drag the bar on its top edge to resize it. <b>Expand</b> makes it as tall as possible, and <b>Hide</b> collapses it.</p>';
+const INFO={
+  swarms:()=>'<p><b>Swarm list</b> Each box below is one swarm, with the share of its servers that agree about each other ("in sync"). Click a server number to select it: the inspector, the socket traffic and the Command target all follow the selected server.</p>',
+  find:()=>'<p><b>Find</b> Type part of a server ID, such as <b>003</b> or <b>alpha-Server-003</b>, and press Enter. That server is selected and brought into view.</p>',
+  pause:()=>LIVE
+    ?'<p><b>Pause updates</b> Stops this page asking the harness for new data, so the picture stops changing. The servers keep running underneath. Press again to resume.</p>'
+    :'<p><b>Pause</b> Freezes the simulation. Press again to resume.</p>',
+  speed:()=>'<p><b>Speed</b> How fast the simulation runs, from 0.5× to 4×. It changes only the picture, not what the servers do.</p>',
+  partition:()=>'<p><b>Partition</b> Splits every swarm into two halves that cannot exchange messages (marked A and B), so you can watch suspicion rise and then views converge again when you lift it. Simulation only: a live swarm is never partitioned.</p>',
+  newswarm:()=>'<p><b>New swarm</b> Adds another simulated swarm. To start real servers, open the page from the harness (http://localhost:8088/) and use <b>Start a swarm</b>.</p>',
+  addserver:()=>'<p><b>Add server</b> Adds one more simulated server to the selected swarm.</p>',
+  canvas:()=>'<p><b>Zoom</b> Mouse wheel, the − and + buttons or the − and + keys. Double-click empty canvas to zoom in there.</p><p><b>Pan</b> Drag empty canvas.</p><p><b>Fit</b> Frames every server (key 0). Until you move the view yourself, it refits as servers come and go.</p><p><b>Focus</b> Hides the side panels so the canvas fills the window (key F). Press again to bring them back.</p>',
+  actions:()=>'<p><b>Leave gracefully</b> Tells the gossip peers this server is leaving, so they rate it LEFT quickly. It keeps running. Needs gossip.</p><p><b>Stop</b> Closes the server without telling anyone, so its peers rate it SUSPECT and then DEAD. It stays listed.</p><p><b>Restart</b> Starts a stopped server again on the same ports, with a new boot ID.</p><p><b>Remove</b> Takes the server out of the swarm for good. With gossip it announces its departure first. It cannot be restarted.</p>',
+  server:()=>'<p><b>Server</b> Everything about the selected server. The two tags under its ID say whether it is running and whether it has been asked to leave. <b>Main / admin</b> are its two ports.</p><p>With gossip: <b>Boot ID</b> identifies this run of the server (a restart gets a new one), <b>Heartbeat</b> is its own beat count, <b>Rounds</b> the gossip rounds it has run, <b>Exchanges received</b> and <b>Failed outbound</b> its gossip traffic, <b>Isolated</b> whether it has no peers, and <b>Sees live peers</b> how many members it rates ALIVE.</p><p>The table lists every member this server knows and how <b>this server</b> rates it (ALIVE, SUSPECT, DEAD, LEFT), with its heartbeat and seconds since news.</p>',
+  activity:()=>'<p><b>Socket activity</b> Every request the selected server receives, one row each, read from its log. In the Conn column, #1234·15 is the 15th request on connection 1234. The numbers above the list count everything since the server started.</p><p><b>Pause feed</b> freezes the list so you can read it, and Resume catches up. Untick <b>Show gossip</b> to hide the constant gossip traffic.</p>'+PANEL_TIP,
+  command:()=>'<p><b>Command</b> Sends one command to the chosen server and shows exactly what came back. Plain text is sent as an echo; JSON is sent as a request. <b>Try</b> fills in examples, the up and down arrows recall earlier commands, and <b>Clear</b> empties the history.</p>'+PANEL_TIP,
+  events:()=>'<p><b>Events</b> A log of changes this page has noticed: servers starting, stopping or leaving, ratings changing, swarms converging. It starts empty when the page loads.</p>'+PANEL_TIP,
+  dock:()=>PANEL_TIP
+};
+function closePop(){if(popFor){popFor.setAttribute('aria-expanded','false');popFor=null;}pop.hidden=true;}
+function openPop(btn){
+  const make=INFO[btn.dataset.info];if(!make)return;
+  pop.innerHTML=make();pop.style.visibility='hidden';pop.hidden=false;
+  const r=btn.getBoundingClientRect(),w=pop.offsetWidth,h=pop.offsetHeight;
+  const left=Math.min(Math.max(8,r.left+r.width/2-w/2),innerWidth-w-8);
+  let top=r.bottom+8;if(top+h>innerHeight-8)top=Math.max(8,r.top-h-8);
+  pop.style.left=left+'px';pop.style.top=top+'px';pop.style.visibility='';
+  btn.setAttribute('aria-expanded','true');popFor=btn;
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('.info[data-info]');
+  if(b){const same=popFor===b;closePop();if(!same)openPop(b);return;}
+  if(popFor&&!e.target.closest('#pop'))closePop();
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&popFor){const b=popFor;closePop();b.focus();}});
+addEventListener('resize',closePop);
+/* the small i beside each sidebar operation shows or hides a plain explanation of it in place */
+$('#ctl').addEventListener('click',e=>{
+  const b=e.target.closest('.info');if(!b)return;
+  const open=b.getAttribute('aria-expanded')!=='true';
+  b.setAttribute('aria-expanded',open);document.getElementById(b.getAttribute('aria-controls')).hidden=!open;
+});
 const stage=$('#stage'),canvas=$('#canvas');
 let pan=null;
 stage.addEventListener('pointerdown',e=>{
@@ -1019,7 +1111,7 @@ $('#find').addEventListener('keydown',e=>{
 /* dock: tabs and collapse */
 function showDock(){
   const live=LIVE;
-  $('#tab-activity').hidden=!live;$('#tab-command').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);$('#act-pause').hidden=!(live&&dockTab==='activity'&&dockOpen);
+  $('#tab-activity').hidden=!live;$('#tab-command').hidden=!live;$('#info-activity').hidden=!live;$('#info-command').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);$('#act-pause').hidden=!(live&&dockTab==='activity'&&dockOpen);
   if(!live)dockTab='events';
   for(const t of['activity','command','events']){
     $('#tab-'+t).setAttribute('aria-selected',dockTab===t);

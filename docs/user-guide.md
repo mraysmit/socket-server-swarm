@@ -57,7 +57,7 @@ your swarm and "Simulated swarm" for the simulation.
 ## 5. Start some servers
 
 In the **Swarms** panel at the top left of the page, type a name (for example `alpha`) and a number of
-servers (1 to 100), then press **Start**. The servers appear on the canvas as soon as they are up. A
+servers (1 to 100) in the **Start a swarm** box, then press **Start**. The servers appear on the canvas as soon as they are up. A
 large swarm can take several seconds to start; the page keeps updating meanwhile. Start a second swarm
 the same way if you want one. The name box suggests the next unused name.
 
@@ -87,8 +87,11 @@ The page polls every second, or every 3 seconds once a swarm is larger than 32 s
 
 ## 7. Make something happen
 
-Use the controls in the Swarms panel. They act on the swarm chosen in the drop-down, which follows the
-server you select.
+Use the **Selected swarm** box in the Swarms panel. Everything in it acts on the swarm chosen in its
+drop-down, which follows the server you select; the result of the last action shows under the boxes. If you are unsure what an operation does, press the small
+**i** beside its heading for a short explanation (press it again to hide it). The same icon is on the header, the
+swarm list, the zoom bar, the Server panel, the server actions in the inspector and each tab of the bottom panel (Socket
+activity, Command, Events), where a small note opens beside it; Escape or a click elsewhere closes it.
 
 - **Command to one server:** open the **Command** tab in the bottom panel, pick a server (or click one), type a
   command and press Send. Plain text is sent as an echo; a JSON request such as
@@ -96,13 +99,13 @@ server you select.
   examples. Every entry shows what was sent and exactly what came back: the result, or the error code and
   message, or why there was no reply (for example "Connection refused" for a stopped server). Use it to see how a
   server handles bad input. The console equivalent is `call alpha-Server-002 hello`.
-- **Send:** type a message and press Send. Plain text is echoed back. A full JSON request such as
+- **Send:** type a message under **Send to every server** and press Send. Plain text is echoed back. A full JSON request such as
   `{"instruction":"echo","parameters":{"text":"hi"}}` is sent as it is. The panel reports how many servers
   replied OK and shows the first reply, and the requests appear in the socket activity feed.
-- **Load test:** set the number of requests and clients and press Load test. It runs a verified echo
+- **Load test:** set the number of requests and clients and press Run (under **Load test**). It runs a verified echo
   test across the swarm and reports how many passed, how long it took and the rate. Watch the counters and
   graph move while it runs.
-- **Add servers:** choose the swarm, enter a number and press **Add servers**. They are numbered after the
+- **Add servers:** choose the swarm, enter a number under **Add servers** and press **Add**. They are numbered after the
   highest ID the swarm has and join it (with gossip, through its first server).
 - **Remove a server:** select it and press **Remove** in the inspector. It leaves the swarm for good (with
   gossip it announces its departure first, so its peers rate it LEFT). Unlike Stop, it cannot be restarted.

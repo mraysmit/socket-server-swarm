@@ -222,10 +222,16 @@ console command. Add servers in the swarm panel (or `POST /api/swarms/<name>/ser
 and they carry an `X-Swarm-UI` header, so another web page cannot trigger them.
 
 The swarm panel at the top left of the live page does what the console does, so the console is optional.
-Type a name and a number of servers and press Start. Choose a swarm in the list to Stop it, or press
-Stop all. Send posts a message to every server in the swarm (plain text is echoed; a full JSON request is
-sent as it is) and reports how many replied. Load test runs the verified echo test with the request and client
-counts you give and shows the result and rate. These use `POST /api/swarms`,
+The panel is split into boxed groups. **Start a swarm** takes a name and a number of servers. **Selected swarm**
+starts with a drop-down that chooses the swarm, with Stop for that swarm and Stop all for every swarm, and
+everything under it acts on the chosen swarm: **Add servers**, **Send to every server** (plain text is echoed; a
+full JSON request is sent as it is; it reports how many replied) and **Load test** (the verified echo test with
+the request and client counts you give, with the result and rate). The small **i** beside each operation shows or hides a short explanation of what it does. The same icon appears on
+the header (Find, Pause updates), the swarm list, the zoom bar (zoom, pan, Fit, Focus), the Server panel (what each fact and the member table mean), the server actions in
+the inspector (Leave gracefully, Stop, Restart, Remove) and each of the Socket activity, Command and Events tabs of
+the bottom panel; the simulation's own controls have one too. Those open a small note beside the icon, which closes
+when you press the icon again, press Escape or click elsewhere. One icon covers a group of buttons and explains each. The outcome of the last
+action shows under the boxes. These use `POST /api/swarms`,
 `POST /api/swarms/<name>/<stop|send|test>` and `POST /api/stop-all`, which have the same protection as the
 server buttons. The page keeps updating while a large swarm is starting.
 
