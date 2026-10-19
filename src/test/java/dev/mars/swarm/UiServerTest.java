@@ -74,6 +74,9 @@ class UiServerTest {
             assertEquals(200, page.statusCode());
             assertTrue(page.headers().firstValue("Content-Type").orElseThrow().startsWith("text/html"));
             assertTrue(page.body().contains("Swarm Observatory"));
+            // The page carries its own icon, so a browser never asks for a /favicon.ico this server does not have.
+            assertTrue(page.body().contains("<link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml,"),
+                    "The page must declare an inline icon");
             assertEquals(200, get(ui, "/index.html").statusCode());
             assertEquals(404, get(ui, "/missing").statusCode());
             assertEquals(404, get(ui, "/api/snapshot/extra").statusCode());
