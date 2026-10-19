@@ -66,14 +66,19 @@ The page polls every second, or every 3 seconds once a swarm is larger than 32 s
 ## 6. Watch the operations
 
 - **Select a server:** click it on the canvas, or in the list on the left. Its details and, with
-  gossip, its view of the other members open in the inspector on the right.
+  gossip, its view of the other members open in the inspector on the right, and its socket traffic
+  appears in the bottom panel (the panel switches to the Socket activity tab and opens if it was hidden).
 - **Gossip ratings:** the outline of each server is its real state. The badge on every other server
   is the selected server's opinion of it (ALIVE, SUSPECT, DEAD, LEFT). A difference between the two is
   worth looking at.
 - **Socket activity:** with a server selected, the dock under the canvas shows its connections,
   requests, replies and errors, a requests-per-second graph, and a feed with one row per request. A
   value such as `#9184·15` is the 15th request on connection 9184. Tick the checkbox to hide gossip
-  exchanges, which otherwise dominate a gossiping swarm.
+  exchanges, which otherwise dominate a gossiping swarm. **Pause feed** freezes the feed so you can read it;
+  **Resume feed** catches up from where it stopped.
+- **Panel height:** drag the bar along the top edge of the bottom panel to make the feed taller or shorter,
+  double-click it to reset, or press **Expand** to give the panel nearly the whole window and **Restore** to put it
+  back. The canvas refits as the panel changes.
 - **Events tab:** a log of what changed (servers started or stopped, ratings changing, the swarm
   converging). It starts empty after a refresh and does not survive reloading the page.
 - **Zoom and pan:** mouse wheel or `+` and `-` to zoom, drag the empty canvas to pan, `0` or the Fit
@@ -91,6 +96,10 @@ server you select.
 - **Load test:** set the number of requests and clients and press Load test. It runs a verified echo
   test across the swarm and reports how many passed, how long it took and the rate. Watch the counters and
   graph move while it runs.
+- **Add servers:** choose the swarm, enter a number and press **Add servers**. They are numbered after the
+  highest ID the swarm has and join it (with gossip, through its first server).
+- **Remove a server:** select it and press **Remove** in the inspector. It leaves the swarm for good (with
+  gossip it announces its departure first, so its peers rate it LEFT). Unlike Stop, it cannot be restarted.
 - **Break and repair a server:** select it and use Leave gracefully, Stop or Restart in the inspector.
   Stop closes a server without telling its peers, so with gossip the others move it from ALIVE to SUSPECT
   and then DEAD. Leave announces a graceful departure and shows as LEFT. Restart brings a server back on the

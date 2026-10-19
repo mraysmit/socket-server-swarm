@@ -180,7 +180,31 @@ class SwarmConsoleTest {
         assertEquals(java.util.List.of("false", "true"), alive, output);
         assertTrue(output.contains("Gossip is not enabled"), output);
         assertTrue(output.contains("Unknown server: missing-Server-001"), output);
-        assertTrue(output.contains("Usage: server <stop|leave|restart> <id>"), output);
+        assertTrue(output.contains("Usage: server <stop|leave|restart|remove> <id>"), output);
+    }
+
+    @Test
+    void addAndRemoveGrowAndShrinkASwarmAndReportMisuse() throws Exception {
+        String output = run("""
+                start grow 2
+                add grow
+                add grow 2
+                list
+                server remove grow-Server-002
+                list
+                add missing 1
+                add grow x
+                add
+                server remove grow-Server-002
+                quit
+                """);
+        assertTrue(output.contains("Servers added | name=grow | servers=1"), output);
+        assertTrue(output.contains("Servers added | name=grow | servers=2"), output);
+        assertTrue(output.contains("Server removed | serverId=grow-Server-002"), output);
+        assertTrue(output.contains("serverId=grow-Server-005"), output);
+        assertTrue(output.contains("Unknown swarm: missing"), output);
+        assertTrue(output.contains("Usage: add <name> [servers]"), output);
+        assertTrue(output.contains("Unknown server: grow-Server-002"), output);
     }
 
     @Test

@@ -159,7 +159,13 @@ td.m{font-family:var(--mono)} td.r,th.r{text-align:right}
 
 /* dock under the canvas: socket activity and events stay on screen */
 #insp-table{flex:1;min-height:0;overflow:auto}
-.dock{flex:none;height:min(30%,280px);min-height:150px;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.dock{flex:none;height:var(--dock-h,min(30%,280px));min-height:150px;display:flex;flex-direction:column;border-top:1px solid var(--line);position:relative}
+.dock-grip{position:absolute;left:0;right:0;top:-5px;height:10px;cursor:ns-resize;z-index:3;touch-action:none}
+.dock-grip::after{content:"";position:absolute;left:50%;top:3px;width:44px;height:4px;margin-left:-22px;border-radius:2px;background:var(--line)}
+.dock-grip:hover::after,.dock-grip:focus-visible::after,.dock.resizing .dock-grip::after{background:var(--accent)}
+.dock-grip:focus-visible{outline:none}
+.dock.collapsed .dock-grip{display:none}
+body.resizing-dock{cursor:ns-resize;user-select:none}
 .dock.collapsed{height:auto;min-height:0}
 .dock.collapsed .dock-body{display:none}
 .dock-bar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -199,6 +205,7 @@ input.find:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   .app>.card{overflow:visible}
   .canvas{flex:none;height:62dvh;min-height:360px}
   .dock{height:340px}
+  .dock-grip,#dock-max{display:none}
   .swarms{flex-direction:row;flex-wrap:wrap;overflow:visible}
   .swarm{flex:1 1 220px;border-bottom:0;border-right:1px solid var(--line)}
 }
@@ -245,6 +252,10 @@ body{margin:0}
           <button class="btn danger" id="ctl-stop" type="button" title="Close every server in this swarm">Stop</button>
           <button class="btn danger" id="ctl-stopall" type="button" title="Close every server in every swarm">Stop all</button>
         </div>
+        <form class="row" id="ctl-add" aria-label="Add servers to the swarm">
+          <label class="sr" for="ctl-addn">Servers to add</label><input class="w-num" id="ctl-addn" type="number" min="1" max="100" value="1" title="Servers to add to the swarm chosen above">
+          <button class="btn" id="ctl-addgo" type="submit" title="Start more servers in the swarm chosen above">Add servers</button>
+        </form>
         <form class="row" id="ctl-send" aria-label="Send a message">
           <label class="sr" for="ctl-text">Message</label><input class="w-text" id="ctl-text" placeholder="message or JSON" autocomplete="off" spellcheck="false" title="Plain text is echoed. A full JSON request is sent as it is.">
           <button class="btn" id="ctl-sendgo" type="submit" title="Send to every server in the swarm">Send</button>
@@ -287,11 +298,14 @@ body{margin:0}
         </details>
       </div>
       <section class="dock" id="dock" aria-label="Socket activity and events">
+        <div class="dock-grip" id="dock-grip" role="separator" aria-orientation="horizontal" aria-label="Resize the panel" aria-valuemin="150" tabindex="0" title="Drag up or down to resize. Arrow keys resize too; double-click resets."></div>
         <div class="dock-bar" role="tablist">
           <button class="tab" id="tab-activity" role="tab" aria-selected="true" aria-controls="pane-activity" data-tab="activity" title="Each row is one connection to the server's main port. The server logs who connected, the instruction, the message ID and the reply status. It does not log message bodies.">Socket activity</button>
           <button class="tab" id="tab-events" role="tab" aria-selected="false" aria-controls="pane-events" data-tab="events">Events</button>
           <span class="grow"></span>
+          <button class="btn small" id="act-pause" aria-pressed="false" title="Freeze the feed so you can read it; press again to catch up" hidden>Pause feed</button>
           <label class="check" id="act-gossip-label"><input type="checkbox" id="act-gossip" checked> Show gossip exchanges</label>
+          <button class="btn small" id="dock-max" aria-pressed="false" title="Make the panel as tall as the window allows, or restore it">Expand</button>
           <button class="btn small" id="dock-toggle" aria-expanded="true" title="Collapse or expand this panel">Hide</button>
         </div>
         <div class="dock-body" id="pane-activity" role="tabpanel">
@@ -560,6 +574,7 @@ function leave(o){
   for(const e of o.view.values()){const t=byId(e.id);if(t&&t!==o&&!e.left)send(o,t);}
 }
 function stop(o){if(!o.up)return;o.up=false;ev('stopped',`${o.id} stopped without leaving`);}
+function removeNode(o){nodes=nodes.filter(n=>n!==o);ev('stopped',`${o.id} was removed from ${o.swarm}`);if(sel===o)sel=nodes.find(n=>n.swarm===o.swarm)||nodes[0]||null;}
 function restart(o){
   o.boot=hex();o.hb=0;o.up=true;o.left=false;o.dep='NOT_REQUESTED';o.view=new Map();o.tomb=new Map();
   o.rounds=0;o.isolated=true;putSelf(o);o.nextRound=T+300;
@@ -712,9 +727,9 @@ function renderPanel(){
     ?`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Admin status</dt><dd>${o.up?'ALIVE':'not answering'}</dd></dl>`
     :`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Boot ID</dt><dd>${o.boot}</dd><dt>Heartbeat</dt><dd>${o.hb}</dd><dt>Rounds</dt><dd>${o.rounds}</dd><dt>Exchanges received</dt><dd>${o.inbound}</dd><dt>Failed outbound</dt><dd>${o.failed}</dd><dt>Isolated</dt><dd>${o.started&&o.isolated?'true':'false'}</dd><dt>Sees live peers</dt><dd>${k?k.c+' of '+k.n:'—'}</dd></dl>`;
   setHTML($('#insp-facts'),facts);
-  const canLeave=o.up&&!o.left&&(!LIVE||o.gossip)&&!actionBusy,canStop=o.up&&!actionBusy,canRestart=o.started&&(!o.up||o.left)&&!actionBusy;
+  const canLeave=o.up&&!o.left&&(!LIVE||o.gossip)&&!actionBusy,canStop=o.up&&!actionBusy,canRestart=o.started&&(!o.up||o.left)&&!actionBusy,canRemove=!actionBusy;
   const leaveTip=LIVE&&!o.gossip?'Needs the gossip plugin (start the harness with --gossip)':'Publish a graceful departure to the gossip peers';
-  setHTML($('#insp-actions'),`<div class="actions"><button class="btn" data-act="leave" data-key="a-leave" ${canLeave?'':'disabled'} title="${leaveTip}">Leave gracefully</button><button class="btn danger" data-act="stop" data-key="a-stop" ${canStop?'':'disabled'} title="Close the server without telling its peers">Stop</button><button class="btn" data-act="restart" data-key="a-restart" ${canRestart?'':'disabled'} title="Start again with a new boot ID">Restart</button></div>${actionNote?`<p class="hint" role="status" style="border:0">${esc(actionNote)}</p>`:''}`);
+  setHTML($('#insp-actions'),`<div class="actions"><button class="btn" data-act="leave" data-key="a-leave" ${canLeave?'':'disabled'} title="${leaveTip}">Leave gracefully</button><button class="btn danger" data-act="stop" data-key="a-stop" ${canStop?'':'disabled'} title="Close the server without telling its peers">Stop</button><button class="btn" data-act="restart" data-key="a-restart" ${canRestart?'':'disabled'} title="Start again with a new boot ID">Restart</button><button class="btn danger" data-act="remove" data-key="a-remove" ${canRemove?'':'disabled'} title="Take this server out of the swarm for good. With gossip it first announces that it is leaving.">Remove</button></div>${actionNote?`<p class="hint" role="status" style="border:0">${esc(actionNote)}</p>`:''}`);
   const rows=[...o.view.values()].sort((a,b)=>a.id.localeCompare(b.id)||a.boot.localeCompare(b.boot));
   const empty=noGossip?'The gossip plugin is not loaded on this server, or it is not answering.':'No members known yet';
   const more=o.truncated?'<p class="hint" style="border:0">Showing the first page of members only.</p>':'';
@@ -755,6 +770,7 @@ const PARTITION_NOTE=$('#banner').textContent;
 /* fromList: chosen from the server list or Find, so bring it into view if it is off the canvas */
 function select(id,fromList){
   sel=byId(id)||sel;
+  if(LIVE&&(!dockOpen||dockTab!=='activity')){dockTab='activity';dockOpen=true;showDock();}
   if(fromList&&sel&&offscreen(sel))centerOn(sel);
   renderAll();
   if(LIVE)refreshSelected().then(renderAll);
@@ -763,15 +779,16 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
   const a=b.dataset.act;
   if(a==='select')select(b.dataset.id,true);
-  else if(LIVE&&sel&&(a==='leave'||a==='stop'||a==='restart'))runAction(a,sel);
+  else if(LIVE&&sel&&(a==='leave'||a==='stop'||a==='restart'||a==='remove'))runAction(a,sel);
   else if(a==='leave'&&sel){leave(sel);renderAll();}
   else if(a==='stop'&&sel){stop(sel);renderAll();}
   else if(a==='restart'&&sel){restart(sel);renderAll();}
+  else if(a==='remove'&&sel){removeNode(sel);renderAll();}
 });
 /* live mode: ask the harness to act on one server, then refresh at once instead of waiting for the next poll */
 async function runAction(act,o){
   if(actionBusy)return;
-  actionBusy=true;actionNote={leave:'Leaving',stop:'Stopping',restart:'Restarting'}[act]+' '+o.id+'…';renderAll();
+  actionBusy=true;actionNote={leave:'Leaving',stop:'Stopping',restart:'Restarting',remove:'Removing'}[act]+' '+o.id+'…';renderAll();
   try{
     const r=await fetch('/api/servers/'+encodeURIComponent(o.id)+'/'+act,{method:'POST',headers:{'X-Swarm-UI':'1'},cache:'no-store'});
     const j=await r.json().catch(()=>({}));
@@ -798,7 +815,7 @@ function renderControls(){
   if(!nm.value&&document.activeElement!==nm)nm.value=NAMES.find(n=>!names.includes(n))||'swarm'+(names.length+1);
   const has=names.length>0;
   for(const id of['ctl-name','ctl-count','ctl-go'])$('#'+id).disabled=ctlBusy;
-  for(const id of['ctl-swarm','ctl-stop','ctl-stopall','ctl-text','ctl-sendgo','ctl-req','ctl-conc','ctl-testgo'])$('#'+id).disabled=ctlBusy||!has;
+  for(const id of['ctl-swarm','ctl-stop','ctl-stopall','ctl-addn','ctl-addgo','ctl-text','ctl-sendgo','ctl-req','ctl-conc','ctl-testgo'])$('#'+id).disabled=ctlBusy||!has;
 }
 async function ctlPost(path,body,busyText){
   if(ctlBusy)return null;
@@ -828,6 +845,13 @@ $('#ctl-stop').addEventListener('click',async()=>{
 });
 $('#ctl-stopall').addEventListener('click',async()=>{
   if(await ctlPost('/api/stop-all',{},'Stopping every swarm…'))ctlResult('Stopped every swarm.');
+});
+$('#ctl-add').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const n=$('#ctl-swarm').value,count=Number($('#ctl-addn').value);
+  if(!n){ctlResult('Choose a swarm first.',true);return;}
+  const j=await ctlPost('/api/swarms/'+encodeURIComponent(n)+'/servers',{count},'Adding '+count+' to '+n+'…');
+  if(j)ctlResult('Added '+j.servers.join(', ')+'.');
 });
 $('#ctl-send').addEventListener('submit',async e=>{
   e.preventDefault();
@@ -908,7 +932,7 @@ $('#find').addEventListener('keydown',e=>{
 /* dock: tabs and collapse */
 function showDock(){
   const live=LIVE;
-  $('#tab-activity').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);
+  $('#tab-activity').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);$('#act-pause').hidden=!(live&&dockTab==='activity'&&dockOpen);
   if(!live)dockTab='events';
   for(const t of['activity','events']){
     $('#tab-'+t).setAttribute('aria-selected',dockTab===t);
@@ -918,6 +942,47 @@ function showDock(){
   $('#dock-toggle').textContent=dockOpen?'Hide':'Show';$('#dock-toggle').setAttribute('aria-expanded',dockOpen);
 }
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{dockTab=t.dataset.tab;dockOpen=true;showDock();renderAll();if(LIVE)refreshSelected().then(renderAll);}));
+/* dock height: drag the grip, use the arrow keys, double-click to reset, or Expand to take the whole stage but a strip of canvas */
+const dockEl=$('#dock'),grip=$('#dock-grip'),MIN_DOCK=150,KEEP_CANVAS=140;
+let dockH=null,dockMax=false;
+const maxDock=()=>Math.max(MIN_DOCK,dockEl.parentElement.clientHeight-KEEP_CANVAS);
+function setDockH(h,silent){
+  dockH=h===null?null:Math.round(Math.min(maxDock(),Math.max(MIN_DOCK,h)));
+  dockEl.style.setProperty('--dock-h',dockH===null?'':dockH+'px');
+  if(dockH===null)dockEl.style.removeProperty('--dock-h');
+  grip.setAttribute('aria-valuenow',dockH===null?Math.round(dockEl.getBoundingClientRect().height):dockH);
+  grip.setAttribute('aria-valuemax',maxDock());
+  dockMax=dockH!==null&&dockH>=maxDock()-1;
+  $('#dock-max').textContent=dockMax?'Restore':'Expand';$('#dock-max').setAttribute('aria-pressed',dockMax);
+  if(!silent){try{if(dockH===null)localStorage.removeItem('swarm-dock-h');else localStorage.setItem('swarm-dock-h',String(dockH));}catch{}}
+}
+grip.addEventListener('pointerdown',e=>{
+  if(e.button!==0||!dockOpen)return;
+  e.preventDefault();
+  const y0=e.clientY,h0=dockEl.getBoundingClientRect().height;
+  grip.setPointerCapture(e.pointerId);dockEl.classList.add('resizing');document.body.classList.add('resizing-dock');
+  const move=ev=>setDockH(h0+(y0-ev.clientY),true);
+  const up=()=>{
+    grip.removeEventListener('pointermove',move);grip.removeEventListener('pointerup',up);grip.removeEventListener('pointercancel',up);
+    dockEl.classList.remove('resizing');document.body.classList.remove('resizing-dock');setDockH(dockH);
+  };
+  grip.addEventListener('pointermove',move);grip.addEventListener('pointerup',up);grip.addEventListener('pointercancel',up);
+});
+grip.addEventListener('dblclick',()=>setDockH(null));
+grip.addEventListener('keydown',e=>{
+  const cur=dockEl.getBoundingClientRect().height,step=e.shiftKey?120:30;
+  if(e.key==='ArrowUp')setDockH(cur+step);
+  else if(e.key==='ArrowDown')setDockH(cur-step);
+  else if(e.key==='Home')setDockH(maxDock());
+  else if(e.key==='End')setDockH(MIN_DOCK);
+  else return;
+  e.preventDefault();
+});
+$('#dock-max').addEventListener('click',()=>{
+  if(dockMax)setDockH(null);else{dockOpen=true;showDock();setDockH(maxDock());}
+});
+addEventListener('resize',()=>{if(dockH!==null)setDockH(dockH,true);});
+try{const saved=Number(localStorage.getItem('swarm-dock-h'));if(saved>=MIN_DOCK)setDockH(saved,true);}catch{}
 $('#dock-toggle').addEventListener('click',()=>{dockOpen=!dockOpen;showDock();requestAnimationFrame(()=>{if(userView)applyView();else fitView();});});
 $('#pause').addEventListener('click',()=>{paused=!paused;renderAll();});
 $('#speed').addEventListener('change',e=>{speed=+e.target.value;});
@@ -927,7 +992,7 @@ $('#addserver').addEventListener('click',()=>{addServer();renderAll();});
 
 /* live mode: socket activity of the selected server, fetched from the harness and folded into one row per connection */
 const act={};
-let actBusy=false;
+let actBusy=false,feedPaused=false;
 const actFor=id=>act[id]||(act[id]={lastSeq:0,rows:new Map(),counters:null,samples:[],lastWall:0,lastReq:0,available:true,error:''});
 function mergeActivity(a,j){
   a.available=j.available!==false;
@@ -984,7 +1049,7 @@ async function fetchFullView(o){
 }
 const refreshSelected=()=>Promise.all([fetchActivity(),fetchFullView(sel)]);
 async function fetchActivity(){
-  if(!LIVE||!sel||paused||actBusy||!dockOpen||dockTab!=='activity')return;
+  if(!LIVE||!sel||paused||feedPaused||actBusy||!dockOpen||dockTab!=='activity')return;
   actBusy=true;
   const a=actFor(sel.id);
   try{
@@ -1024,12 +1089,17 @@ function renderActivity(){
   setHTML($('#act-spark'),`${sparkline(a.samples)}<span>requests/s<br>last minute</span>`);
   const showGossip=$('#act-gossip').checked;
   const rows=[...a.rows.values()].reverse().filter(r=>showGossip||r.instruction!=='gossip').slice(0,100);
-  const note=a.error?`<p class="hint" style="border:0" role="status">${esc(a.error)}</p>`:'';
+  const note=(feedPaused?'<p class="hint" style="border:0" role="status">Feed paused: nothing new is read until you press Resume feed. Nothing is lost while it is paused, up to the last 300 events of this server.</p>':'')+(a.error?`<p class="hint" style="border:0" role="status">${esc(a.error)}</p>`:'');
   setHTML($('#act-feed'),`<table><thead><tr><th>Time</th><th>Client</th><th title="Connection number, and which request on that connection this is. A number after the dot above 1 means the connection was reused.">Conn</th><th>Instruction</th><th>Message</th><th>Result</th><th class="r">ms</th></tr></thead><tbody>${
     rows.map(r=>`<tr class="${r.instruction==='gossip'?'dim':''}"><td class="m">${clock(r.t)}</td><td class="m">${esc(r.client)}</td><td class="m">#${r.conn}${r.nth>1?'·'+r.nth:''}</td><td class="m">${esc(r.instruction||'—')}</td><td class="m" title="${esc(r.messageId)}">${esc(r.messageId.slice(0,8)||'—')}</td><td><span class="pill p-${r.state}" title="${esc(r.detail)}">${r.state.replace('_',' ')}</span></td><td class="r">${r.state==='IN_FLIGHT'||r.state==='CONNECTED'?'':r.end-r.t}</td></tr>`).join('')
     ||'<tr><td colspan="7" class="old" style="white-space:normal">No connections seen yet. Send something to this server, for example send '+esc(sel.swarm)+' hello.</td></tr>'}</tbody></table>${note}`);
 }
 $('#act-gossip').addEventListener('change',renderActivity);
+$('#act-pause').addEventListener('click',()=>{
+  feedPaused=!feedPaused;
+  $('#act-pause').textContent=feedPaused?'Resume feed':'Pause feed';$('#act-pause').setAttribute('aria-pressed',feedPaused);
+  if(!feedPaused&&LIVE)fetchActivity().then(renderActivity);else renderActivity();
+});
 
 /* boot: use the harness that served this page when it answers, otherwise run the simulation */
 const t0=performance.now();

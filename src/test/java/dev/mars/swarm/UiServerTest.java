@@ -269,6 +269,35 @@ class UiServerTest {
     }
 
     @Test
+    void thePageCanAddServersToASwarmAndRemoveOne() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0, new SocketActivity())) {
+            manager.start("grow", 2);
+            var added = postJson(ui, "/api/swarms/grow/servers", "{\"count\":2}");
+            assertEquals(200, added.statusCode(), added.body());
+            assertEquals(2, Json.read(added.body()).get("servers").size());
+            assertEquals(4, Json.read(get(ui, "/api/snapshot").body()).get("swarms").get(0).get("servers").size());
+            assertEquals(200, postJson(ui, "/api/swarms/grow/servers", "").statusCode(), "No body adds one server");
+            assertEquals(5, manager.list().get("grow").size());
+
+            var removed = postJson(ui, "/api/servers/grow-Server-002/remove", "");
+            assertEquals(200, removed.statusCode(), removed.body());
+            var ids = new java.util.ArrayList<String>();
+            for (var server : Json.read(get(ui, "/api/snapshot").body()).get("swarms").get(0).get("servers")) { ids.add(server.get("serverId").asText()); }
+            assertEquals(List.of("grow-Server-001", "grow-Server-003", "grow-Server-004", "grow-Server-005"), ids);
+            assertEquals(404, postJson(ui, "/api/servers/grow-Server-002/remove", "").statusCode(), "Already removed");
+            assertEquals(404, postJson(ui, "/api/swarms/nope/servers", "").statusCode());
+            assertEquals(400, postJson(ui, "/api/swarms/grow/servers", "{\"count\":0}").statusCode());
+            assertEquals(400, postJson(ui, "/api/swarms/grow/servers", "{\"count\":99}").statusCode(), "Past 100 servers");
+            assertEquals(4, manager.list().get("grow").size(), "Refused requests changed nothing");
+
+            var foreign = HttpRequest.newBuilder(uri(ui, "/api/servers/grow-Server-001/remove")).header("Origin", "https://evil.example")
+                    .header(UiServer.ACTION_HEADER, "1").POST(HttpRequest.BodyPublishers.noBody()).build();
+            assertEquals(403, http.send(foreign, HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(4, manager.list().get("grow").size());
+        }
+    }
+
+    @Test
     void stopAllClosesEverySwarm() throws Exception {
         try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
             manager.start("alpha", 1);

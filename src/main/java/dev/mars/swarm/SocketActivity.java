@@ -75,6 +75,9 @@ public final class SocketActivity {
         if (server.events.size() > EVENTS_PER_SERVER) { server.events.removeFirst(); }
     }
 
+    /** Drops everything recorded for a server that has been removed, so a server added later with the same ID starts clean. */
+    public synchronized void forget(String serverId) { servers.remove(serverId); }
+
     /** Events after {@code afterSeq}, oldest first, at most {@code limit}; null if nothing has been seen for the server. */
     public synchronized View view(String serverId, long afterSeq, int limit) {
         var server = servers.get(serverId);

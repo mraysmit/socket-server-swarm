@@ -65,11 +65,12 @@ Swarm reply | messageId=<uuid> | serverId=alpha-Server-001 | connectionId=<id> |
 | Command | Behavior |
 |---|---|
 | `start <name> <servers>` | Start 1–100 instances concurrently in a named swarm |
+| `add <name> [servers]` | Start more servers (default 1) in a running swarm. They are numbered after the highest ID the swarm has, and with gossip are seeded at its first server. A swarm holds at most 100. |
 | `list` | Show every swarm, server ID, and actual main/admin port |
 | `status [name]` | Query the admin status of one or all swarms |
 | `send <name> <text or JSON>` | Send to each server; plain text invokes `echo` |
 | `test <name> [requests] [clients]` | Run a verified load test; defaults: 1,000 requests, concurrency 100; one kept-open connection per client |
-| `server <stop\|leave\|restart> <id>` | Act on one server by ID, for example `alpha-Server-002`. `stop` closes it without telling its peers and keeps it listed. `restart` starts it again on the same ports (a gossip server gets a new boot ID). `leave` publishes a graceful gossip departure and needs `--gossip`. |
+| `server <stop\|leave\|restart\|remove> <id>` | Act on one server by ID, for example `alpha-Server-002`. `stop` closes it without telling its peers and keeps it listed. `restart` starts it again on the same ports (a gossip server gets a new boot ID). `leave` publishes a graceful gossip departure and needs `--gossip`. `remove` takes the server out of its swarm for good (with gossip it announces its departure first); the swarm is dropped when its last server is removed. |
 | `stop <name>` | Close every instance in one swarm |
 | `stop-all` | Close every managed instance |
 | `help` | Show commands |
@@ -141,6 +142,10 @@ side panels and a dock underneath it, and is built for swarms of up to 100 serve
   and brings it into view. Choosing a server in the left-hand list also scrolls it into view.
 - **Level of detail:** servers numbered inside the circle are drawn when zoomed in; zoomed out,
   numbers and rings drop away and only each server's state and badge remain.
+- **Bottom panel height:** drag the bar at the top edge of the Socket activity and Events panel up or down
+  (or focus it and use the arrow keys; Shift moves further, Home and End jump to the largest and smallest).
+  Double-click the bar to reset. Expand makes the panel as tall as the window allows, leaving a strip of
+  canvas, and Restore puts it back. Hide collapses it. The browser remembers the height.
 - **Layout:** up to 12 servers per swarm sit on a ring; larger swarms are packed on a spiral so
   100 servers fit in a compact disc.
 
@@ -193,9 +198,14 @@ the feed shows metadata only, and the harness keeps the last 300 events per serv
 Because it reads the console, it records only servers running in this harness, and only
 while the UI is enabled (`--no-ui` leaves the console untouched).
 
-In the live page, the Leave, Stop and Restart buttons for the selected server call
-`POST /api/servers/<id>/<leave|stop|restart>`, the same operations as the `server`
-console command. These requests are refused unless their `Origin` is the harness itself
+Clicking a server on the canvas, or its chip in the swarm list, selects it and shows its socket traffic in the
+bottom panel (it switches to the Socket activity tab and opens the panel if it was hidden). Pause feed freezes
+the feed so you can read it, and Resume feed catches up from where it stopped.
+
+In the live page, the Leave, Stop, Restart and Remove buttons for the selected server call
+`POST /api/servers/<id>/<leave|stop|restart|remove>`, the same operations as the `server`
+console command. Add servers in the swarm panel (or `POST /api/swarms/<name>/servers` with
+`{"count":3}`) starts more servers in the chosen swarm. These requests are refused unless their `Origin` is the harness itself
 and they carry an `X-Swarm-UI` header, so another web page cannot trigger them.
 
 The swarm panel at the top left of the live page does what the console does, so the console is optional.

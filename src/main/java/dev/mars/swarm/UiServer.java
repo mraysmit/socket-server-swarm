@@ -23,11 +23,11 @@ public final class UiServer implements AutoCloseable {
 
     /** Header a page must send with every action; cross-site requests cannot add it without a preflight, which is refused. */
     public static final String ACTION_HEADER = "X-Swarm-UI";
-    private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart)");
+    private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart|remove)");
 
     private static final Pattern MEMBERS_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/members");
     private static final Pattern ACTIVITY_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/activity");
-    private static final Pattern SWARM_ACTION_PATH = Pattern.compile("/api/swarms/([A-Za-z][A-Za-z0-9._-]*)/(stop|send|test)");
+    private static final Pattern SWARM_ACTION_PATH = Pattern.compile("/api/swarms/([A-Za-z][A-Za-z0-9._-]*)/(stop|send|test|servers)");
     private static final int MAX_BODY = 8192;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -89,6 +89,10 @@ public final class UiServer implements AutoCloseable {
             switch (what) {
                 case "stop" -> manager.stopServer(serverId);
                 case "leave" -> manager.leaveServer(serverId);
+                case "remove" -> {
+                    manager.removeServer(serverId);
+                    if (activity != null) { activity.forget(serverId); }
+                }
                 default -> manager.restartServer(serverId);
             }
             reply(exchange, 200, "application/json", "{\"ok\":true}");
@@ -118,6 +122,10 @@ public final class UiServer implements AutoCloseable {
                 case "stop" -> {
                     manager.stop(name);
                     reply(exchange, 200, "application/json", "{\"ok\":true}");
+                }
+                case "servers" -> {
+                    var added = manager.addServers(name, integer(body, "count", 1));
+                    reply(exchange, 200, "application/json", Json.write(java.util.Map.of("ok", true, "servers", added.stream().map(ServerEndpoint::serverId).toList())));
                 }
                 case "send" -> {
                     var replies = manager.send(name, text(body, "text")).stream().map(r -> {

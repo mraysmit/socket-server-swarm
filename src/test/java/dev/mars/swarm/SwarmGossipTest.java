@@ -196,6 +196,30 @@ class SwarmGossipTest {
     }
 
     @Test
+    void aServerAddedToARunningSwarmJoinsItAndARemovedOneIsMarkedLeft() throws Exception {
+        requirePlugin();
+        try (var manager = new SwarmManager(List.of(PLUGIN), GossipSettings.fast())) {
+            var endpoints = manager.start("grow", 3);
+            awaitAllSee(manager, endpoints, "ALIVE", 3);
+
+            var added = manager.addServers("grow", 1).getFirst();
+            assertEquals("grow-Server-004", added.serverId());
+            var all = new java.util.ArrayList<>(endpoints);
+            all.add(added);
+            awaitAllSee(manager, all, "ALIVE", 4);
+            assertEquals("grow", status(manager, added).get("swarmId"));
+
+            manager.removeServer("grow-Server-002");
+            var rest = all.stream().filter(endpoint -> !endpoint.serverId().equals("grow-Server-002")).toList();
+            await("the others rate the removed server LEFT or DEAD", () -> rest.stream().allMatch(endpoint -> {
+                String rating = rating(members(manager, endpoint), "grow-Server-002");
+                return rating.equals("LEFT") || rating.equals("DEAD");
+            }));
+            assertEquals(3, manager.list().get("grow").size());
+        }
+    }
+
+    @Test
     void restartedServerGetsANewBootIdAndRejoinsTheSwarm() throws Exception {
         requirePlugin();
         try (var manager = new SwarmManager(List.of(PLUGIN), GossipSettings.fast())) {

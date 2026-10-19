@@ -246,6 +246,80 @@ public final class SwarmManager implements AutoCloseable {
         return new ServerEndpoint(serverId, fresh.getPort(), fresh.getAdminPort());
     }
 
+    /**
+     * Starts {@code count} more servers in a running swarm, numbered after the highest ID it has had. With gossip, each is
+     * seeded at the swarm's first server. Each server is listed as soon as it is up, so a failure part-way keeps the ones
+     * that started.
+     */
+    public synchronized List<ServerEndpoint> addServers(String name, int count) throws IOException {
+        ensureOpen();
+        List<ServerInstance> current;
+        synchronized (swarms) { current = swarms.get(name); }
+        if (current == null) { throw new IllegalArgumentException("Unknown swarm: " + name); }
+        if (count < 1) { throw new IllegalArgumentException("Server count must be at least 1"); }
+        if (current.size() + count > MAX_SERVERS_PER_SWARM) {
+            throw new IllegalArgumentException("A swarm holds at most " + MAX_SERVERS_PER_SWARM + " servers; "
+                    + name + " has " + current.size());
+        }
+        int next = current.stream().mapToInt(s -> indexOf(s.getServerId())).max().orElse(0) + 1;
+        if (next + count - 1 > 999) { throw new IllegalArgumentException("Server numbers run out at 999 in " + name); }
+        var servers = new ArrayList<>(current);
+        var seed = current.getFirst();
+        var added = new ArrayList<ServerEndpoint>();
+        for (int i = 0; i < count; i++) {
+            int index = next + i;
+            try {
+                if (gossip != null && gossipFile != null) { gossipFile.declareServer(name, index, seed.getServerId(), seed.getPort()); }
+                var server = factory.start(new ServerOptions(GossipConfigFile.id(name, index), 0, 0, pluginDirectories));
+                servers.add(server);
+                synchronized (swarms) { swarms.put(name, List.copyOf(servers)); }
+                added.add(new ServerEndpoint(server.getServerId(), server.getPort(), server.getAdminPort()));
+            } catch (IOException | RuntimeException e) {
+                if (gossipFile != null) { gossipFile.forgetServer(GossipConfigFile.id(name, index)); }
+                throw new IOException("Added " + added.size() + " of " + count + " servers to " + name + "; "
+                        + GossipConfigFile.id(name, index) + " failed: " + e.getMessage(), e);
+            }
+        }
+        return List.copyOf(added);
+    }
+
+    /**
+     * Takes one server out of its swarm for good: a gossip server first publishes a graceful departure (best effort), then
+     * it is closed and unlisted. The swarm is dropped when its last server goes. Unlike {@link #stopServer} the server
+     * cannot be restarted.
+     */
+    public void removeServer(String serverId) throws IOException {
+        ServerEndpoint endpoint;
+        synchronized (this) {
+            ensureOpen();
+            var at = locate(serverId);
+            endpoint = endpoints(at.servers()).get(at.position());
+        }
+        if (gossip != null) {
+            try { execute(endpoint, "gossip", Map.of("operation", "leave")); }
+            catch (IOException | RuntimeException ignored) { /* already stopped, or not answering: close it anyway */ }
+        }
+        synchronized (this) {
+            ensureOpen();
+            var at = locate(serverId);
+            try { at.servers().get(at.position()).close(); }
+            catch (RuntimeException e) { throw new IOException("Cannot close " + serverId, e); }
+            var remaining = new ArrayList<>(at.servers());
+            remaining.remove(at.position());
+            synchronized (swarms) {
+                if (remaining.isEmpty()) { swarms.remove(at.swarm()); } else { swarms.put(at.swarm(), List.copyOf(remaining)); }
+            }
+            if (gossipFile != null) {
+                if (remaining.isEmpty()) { gossipFile.forget(at.swarm()); } else { gossipFile.forgetServer(serverId); }
+            }
+        }
+    }
+
+    private static int indexOf(String serverId) {
+        var matcher = SERVER_ID.matcher(serverId);
+        return matcher.matches() ? Integer.parseInt(matcher.group(2)) : 0;
+    }
+
     /** Asks the server to publish a graceful departure to its gossip peers; it keeps running afterwards. */
     public CommandReply leaveServer(String serverId) throws IOException {
         if (gossip == null) { throw new IllegalStateException("Gossip is not enabled; start the harness with --gossip"); }
@@ -268,10 +342,12 @@ public final class SwarmManager implements AutoCloseable {
         var matcher = SERVER_ID.matcher(serverId == null ? "" : serverId);
         if (matcher.matches()) {
             var servers = swarms.get(matcher.group(1));
-            int position = Integer.parseInt(matcher.group(2)) - 1;
-            if (servers != null && position >= 0 && position < servers.size()
-                    && servers.get(position).getServerId().equals(serverId)) {
-                return new Located(matcher.group(1), servers, position);
+            if (servers != null) {
+                for (int position = 0; position < servers.size(); position++) {
+                    if (servers.get(position).getServerId().equals(serverId)) {
+                        return new Located(matcher.group(1), servers, position);
+                    }
+                }
             }
         }
         throw new IllegalArgumentException("Unknown server: " + serverId);

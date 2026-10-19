@@ -43,6 +43,22 @@ final class GossipConfigFile implements AutoCloseable {
         write();
     }
 
+    /** Declares one server added to a running swarm, seeded at a server that is already in it. */
+    synchronized void declareServer(String swarm, int index, String seedId, int seedPort) throws IOException {
+        String host = advertiseHost.contains(":") ? "[" + advertiseHost + "]" : advertiseHost;
+        entries.setProperty(prefix(swarm, index) + "swarm.id", swarm);
+        entries.setProperty(prefix(swarm, index) + "seeds", seedId + "@" + host + ":" + seedPort);
+        write();
+    }
+
+    /** Drops one server's entries once it is removed from its swarm. Best effort, like {@link #forget}. */
+    synchronized void forgetServer(String serverId) {
+        for (var key : java.util.List.copyOf(entries.stringPropertyNames())) {
+            if (key.startsWith("server." + serverId + ".")) { entries.remove(key); }
+        }
+        try { write(); } catch (IOException ignored) { /* the file is only read when a server starts */ }
+    }
+
     /** Drops a swarm's entries once it is stopped or failed to start. Best effort: running servers never re-read the file. */
     synchronized void forget(String swarm) {
         var own = Pattern.compile("server\\." + Pattern.quote(swarm) + "-Server-\\d{3}\\..*");

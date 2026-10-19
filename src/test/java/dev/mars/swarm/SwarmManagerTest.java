@@ -263,6 +263,59 @@ class SwarmManagerTest {
     }
 
     @Test
+    void addingServersNumbersThemAfterTheHighestIdAndTheyAnswer() throws Exception {
+        try (var manager = new SwarmManager()) {
+            manager.start("grow", 2);
+            var added = manager.addServers("grow", 2);
+            assertEquals(List.of("grow-Server-003", "grow-Server-004"), added.stream().map(ServerEndpoint::serverId).toList());
+            assertEquals(4, manager.list().get("grow").size());
+            assertEquals(4, manager.status("grow").stream().filter(ServerStatus::alive).count());
+            assertTrue(manager.send("grow", "hi").stream().allMatch(reply -> "OK".equals(reply.status())));
+
+            // Numbers follow the highest ID the swarm still has, so removing the last server frees its number.
+            manager.removeServer("grow-Server-004");
+            assertEquals("grow-Server-004", manager.addServers("grow", 1).getFirst().serverId());
+        }
+    }
+
+    @Test
+    void removingAServerUnlistsItAndTheOthersKeepWorkingByTheirIds() throws Exception {
+        try (var manager = new SwarmManager()) {
+            var endpoints = manager.start("trim", 3);
+            manager.removeServer("trim-Server-002");
+            assertEquals(List.of("trim-Server-001", "trim-Server-003"),
+                    manager.list().get("trim").stream().map(ServerEndpoint::serverId).toList());
+            assertThrows(IllegalArgumentException.class, () -> manager.restartServer("trim-Server-002"), "A removed server cannot be restarted");
+            assertThrows(IllegalArgumentException.class, () -> manager.removeServer("trim-Server-002"));
+            assertThrows(java.io.IOException.class, () -> new java.net.Socket("localhost", endpoints.get(1).port()).close(), "Its port is closed");
+
+            // Servers after the gap are still found by ID, not by position.
+            manager.stopServer("trim-Server-003");
+            manager.restartServer("trim-Server-003");
+            assertTrue(manager.status("trim").stream().allMatch(ServerStatus::alive));
+            assertEquals("trim-Server-004", manager.addServers("trim", 1).getFirst().serverId());
+
+            manager.removeServer("trim-Server-001");
+            manager.removeServer("trim-Server-003");
+            manager.removeServer("trim-Server-004");
+            assertFalse(manager.list().containsKey("trim"), "A swarm with no servers left is dropped");
+        }
+    }
+
+    @Test
+    void addingServersRejectsUnknownSwarmsAndSizesPastTheLimit() throws Exception {
+        try (var manager = new SwarmManager()) {
+            manager.start("cap", 99);
+            assertThrows(IllegalArgumentException.class, () -> manager.addServers("nope", 1));
+            assertThrows(IllegalArgumentException.class, () -> manager.addServers("cap", 0));
+            assertThrows(IllegalArgumentException.class, () -> manager.addServers("cap", 2), "Would be 101");
+            assertEquals(1, manager.addServers("cap", 1).size(), "Exactly 100 is allowed");
+            assertEquals(100, manager.list().get("cap").size());
+            assertThrows(IllegalArgumentException.class, () -> manager.addServers("cap", 1));
+        }
+    }
+
+    @Test
     void failedRestartKeepsTheServerListedAndReportsWhy() throws Exception {
         var attempts = new AtomicInteger();
         try (var manager = new SwarmManager(List.of(), options -> {

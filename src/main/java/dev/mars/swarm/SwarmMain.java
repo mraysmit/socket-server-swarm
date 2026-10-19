@@ -13,11 +13,12 @@ public final class SwarmMain {
     public static final String HELP = """
             Swarm commands:
               start <name> <servers>           Start 1-100 servers concurrently on automatic ports
+              add <name> [servers]             Add servers (default 1) to a running swarm
               list                             List all swarms and endpoints
               status [name]                    Check admin status of one or all swarms
               send <name> <text or JSON>        Send a command to every server in a swarm
               test <name> [requests] [clients]  Verify echo replies (defaults: 1000 requests, 100 clients)
-              server <stop|leave|restart> <id>  Stop, gracefully leave (gossip) or restart one server by ID
+              server <stop|leave|restart|remove> <id>  Stop, gracefully leave (gossip), restart or remove one server by ID
               stop <name>                      Stop one swarm
               stop-all                         Stop every swarm
               help                             Show these commands
@@ -147,6 +148,12 @@ public final class SwarmMain {
                         output.println("Swarm started | name=" + words[1] + " | servers=" + endpoints.size());
                         endpoints.forEach(output::println);
                     }
+                    case "add" -> {
+                        if (words.length < 2 || words.length > 3) { throw new IllegalArgumentException("Usage: add <name> [servers]"); }
+                        var added = manager.addServers(words[1], words.length == 3 ? number(words[2], "Server count") : 1);
+                        output.println("Servers added | name=" + words[1] + " | servers=" + added.size());
+                        added.forEach(output::println);
+                    }
                     case "list" -> {
                         require(words, 1, "list");
                         var swarms = manager.list();
@@ -184,12 +191,13 @@ public final class SwarmMain {
                         result.failures().forEach(output::println);
                     }
                     case "server" -> {
-                        require(words, 3, "server <stop|leave|restart> <id>");
+                        require(words, 3, "server <stop|leave|restart|remove> <id>");
                         switch (words[1].toLowerCase(Locale.ROOT)) {
                             case "stop" -> { manager.stopServer(words[2]); output.println("Server stopped | serverId=" + words[2]); }
                             case "leave" -> { manager.leaveServer(words[2]); output.println("Server left | serverId=" + words[2]); }
                             case "restart" -> output.println("Server restarted | " + manager.restartServer(words[2]));
-                            default -> throw new IllegalArgumentException("Usage: server <stop|leave|restart> <id>");
+                            case "remove" -> { manager.removeServer(words[2]); output.println("Server removed | serverId=" + words[2]); }
+                            default -> throw new IllegalArgumentException("Usage: server <stop|leave|restart|remove> <id>");
                         }
                     }
                     case "stop" -> {
