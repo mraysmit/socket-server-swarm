@@ -2,7 +2,7 @@
 
 ## Overview
 
-The suite has 90 test methods (102 cases with parameterized inputs) in eight JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 100 test methods (112 cases with parameterized inputs) in eight JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
@@ -66,7 +66,7 @@ The suite has 90 test methods (102 cases with parameterized inputs) in eight JUn
 | aRestartedServerIsReachedAgainBecauseAStaleConnectionIsRetriedOnANewOne | After a server restart, the next command succeeds over a new connection. |
 | aStoppedServerIsReportedAsAFailureNotRetriedForever | A command to a stopped server fails promptly. |
 | concurrentCommandsEachGetTheirOwnConnectionAndTheirOwnReply | 20 callers sending 300 commands each get their own reply, with far fewer connections than requests. |
-| theServerSnapshotOfAGossipFreeSwarmStillWorksOverThePool | The snapshot of a swarm without gossip works over pooled connections: polling three servers three times opens three connections, and the plugin check is asked once per server, not on every poll. |
+| theServerSnapshotOfAGossipFreeSwarmStillWorksOverThePool | The snapshot of a swarm without gossip works over pooled connections: polling three servers three times opens three connections, and the plugin checks (gossip and key-value) are asked once per server, not on every poll: twelve pooled requests in all, four per server. |
 | aLoadTestKeepsItsConnectionsOpenInsteadOfOpeningOnePerRequest | 600 load-test requests from 10 callers use at most 60 connections, and every request is counted by the servers. |
 | aServerThatRejectsTheKeepAliveFieldIsServedOneRequestPerConnectionFromThenOn | A fake older server that rejects the keep-alive field: the first request is sent again without it and succeeds, later requests do not retry, and each uses its own connection. |
 | closingThePoolResetsIdleConnectionsSoTheLoadTestLeavesNothingInTimeWait | Closing the pool drops its connections, a new pool opens fresh ones, and an invalid size is rejected. |
@@ -123,7 +123,7 @@ The suite has 90 test methods (102 cases with parameterized inputs) in eight JUn
 | aSwarmLargerThanOneMembersPageIsReadWholeByFollowingTheCursor | With 40 gossip servers, one members page of 32 is cut short, and `SwarmSnapshot.fullMembers` follows the cursor to return all 40 members exactly once, each ALIVE. |
 | swarmSeededAtAnotherSwarmRejectsItAndKeepsItsOwnMembers | A server seeded at another swarm's server has its exchange turned away, and neither swarm lists the other's members. |
 
-### SwarmKvTest (8 methods)
+### SwarmKvTest (14 methods)
 
 Key-value replication in the harness, without any plugin jar.
 
@@ -137,8 +137,14 @@ Key-value replication in the harness, without any plugin jar.
 | closingLeavesAPropertyThatNowPointsAtAnotherFileAlone | A property that has since been pointed elsewhere is not cleared. |
 | aManagerAskedForKvReplicationHasTheConfigFileWhileItRunsAndRemovesItOnClose | A manager built with the flag creates the file when the first swarm starts, and removes it and the property on close. |
 | withoutKvReplicationTheManagerLeavesTheKvConfigPropertyAlone | A manager built without the flag, or with the older constructors, never sets the property. |
+| theSummaryCountsTheServersHoldingTheSameRootAsTheMajority | `SwarmSnapshot.kvSync` reports how many replicating servers hold the root most of them share. |
+| aServerWithAnotherRootIsLeftOutOfTheInSyncCount | One or more servers with a different root are not counted as in sync. |
+| aTieForTheMajorityIsBrokenTheSameWayEveryTime | A tie goes to the smaller root, so the page does not flicker. |
+| serversThatAreDownOrNotReplicatingOrWithoutKvAreNotCounted | Only servers that are up and have replication on count. |
+| whenNoServerIsReplicatingThereIsNoSummary | No replicating server, or no server, gives no summary. |
+| aSwarmWithoutTheKvPluginHasNoKvEntryAndIsAskedOnlyOnce | A swarm without the plugin has no `kv` entry and no summary, and each server is asked for its kv status once and then remembered. |
 
-### SwarmKvReplicationTest (5 methods)
+### SwarmKvReplicationTest (9 methods)
 
 Real servers with the real gossip and key-value plugins. They are skipped when either plugin has not been built in the sibling
 project. Each waits for gossip to rate every member alive (its `members` list has a row for the server itself) before writing.
@@ -149,6 +155,10 @@ project. Each waits for gossip to rate every member alive (its `members` list ha
 | aDeleteOnOneServerIsSeenOnAllFive | A `delete` on a different server removes the pair everywhere. |
 | anObjectValueSurvivesTheJourneyBetweenRealServers | An object with a nested object and an array reads back identically on another server. |
 | statusOnTheWritingServerShowsReplicationOnAndItsPushes | `kv status` reports replication on and a push count that reaches the number of peers. |
+| theSnapshotCarriesEachServersKvStatusAndTheSwarmsInSyncSummary | The snapshot has each server's `kv` status (replication on, pair count, root, sync information), and the swarm's summary reaches three of three in sync. |
+| aServerAddedToARunningSwarmReceivesEverythingThatWasWrittenBeforeItJoined | After 25 pairs are written across three servers, a fourth added to the swarm comes to hold all 25. |
+| aServerThatWasStoppedAndRestartedHasWhatItMissedAndWhatItHadBefore | A server is stopped, a pair is written and another deleted elsewhere, and the restarted server (starting empty) has the new pair and not the deleted one. |
+| twoServersWritingTheSameKeyAtOnceAgreeOnTheValueEverywhere | Two servers put different values for one key, and all four servers end with the same one, the later write. |
 | withoutKvReplicationAWriteStaysOnTheServerThatTookIt | With the flag off, a write stays on the server that took it, and `status` reports replication off. |
 
 ## Running the tests

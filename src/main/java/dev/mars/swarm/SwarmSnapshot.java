@@ -44,6 +44,8 @@ final class SwarmSnapshot {
                 var swarm = new LinkedHashMap<String, Object>();
                 swarm.put("name", name);
                 swarm.put("servers", servers);
+                var kvSummary = kvSync(servers);
+                if (kvSummary != null) { swarm.put("kvSync", kvSummary); }
                 out.add(swarm);
             });
             var snapshot = new LinkedHashMap<String, Object>();
@@ -51,6 +53,33 @@ final class SwarmSnapshot {
             snapshot.put("swarms", out);
             return snapshot;
         }
+    }
+
+    /**
+     * How many of a swarm's servers hold the same key-value root, for the page's "kv in sync N of M". Only servers that are up and
+     * have kv replication on are counted. The root most of them share is the reference, and a tie goes to the smaller root so the
+     * page does not flicker between two. Null when no server is replicating.
+     */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> kvSync(List<Map<String, Object>> servers) {
+        var counts = new java.util.TreeMap<String, Integer>();
+        int replicating = 0;
+        for (var server : servers) {
+            if (!Boolean.TRUE.equals(server.get("alive")) || !(server.get("kv") instanceof Map<?, ?> kv)) { continue; }
+            if (!"on".equals(kv.get("replication")) || !(kv.get("root") instanceof String root)) { continue; }
+            replicating++;
+            counts.merge(root, 1, Integer::sum);
+        }
+        if (replicating == 0) { return null; }
+        String best = null;
+        for (var entry : counts.entrySet()) {
+            if (best == null || entry.getValue() > counts.get(best)) { best = entry.getKey(); }
+        }
+        var summary = new LinkedHashMap<String, Object>();
+        summary.put("replicating", replicating);
+        summary.put("inSync", counts.get(best));
+        summary.put("root", best);
+        return summary;
     }
 
     /** The gossip server's whole member list, followed page by page; a page holds at most 32 members. */
@@ -82,6 +111,29 @@ final class SwarmSnapshot {
     }
 
     private static Map<String, Object> probe(SwarmManager manager, ServerEndpoint endpoint, boolean withMembers) {
+        var server = probeServer(manager, endpoint, withMembers);
+        server.put("kv", Boolean.TRUE.equals(server.get("alive")) ? kv(manager, endpoint) : null);
+        return server;
+    }
+
+    /** The key-value plugin's own status reply, passed through unchanged; null when the plugin is absent or does not answer. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> kv(SwarmManager manager, ServerEndpoint endpoint) {
+        // Asked once of a server without the plugin, for the same reason as gossip: each ask would show as an error in its activity feed.
+        if (manager.knownWithoutKv(endpoint.port())) { return null; }
+        try {
+            var reply = manager.execute(endpoint, "kv", Map.of("operation", "status"));
+            if (!"OK".equals(reply.status())) {
+                if (reply.error() != null && reply.error().code().name().equals("UNKNOWN_INSTRUCTION")) { manager.markWithoutKv(endpoint.port()); }
+                return null;
+            }
+            return reply.result() instanceof Map<?, ?> status ? (Map<String, Object>) status : null;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static Map<String, Object> probeServer(SwarmManager manager, ServerEndpoint endpoint, boolean withMembers) {
         if (manager.gossipEnabled()) {
             // A gossip status reply proves the server answers, so the admin-port probe is only needed when it does not.
             var reply = gossip(manager, endpoint, withMembers);

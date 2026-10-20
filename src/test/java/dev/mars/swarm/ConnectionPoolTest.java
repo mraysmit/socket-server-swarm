@@ -101,8 +101,8 @@ class ConnectionPoolTest {
                 assertTrue(servers.stream().allMatch(server -> server.get("gossip") == null));
             }
             assertEquals(3, manager.connections().opened(), "Polling three servers three times opened one connection each, not nine");
-            // The first poll of each server also asks whether the gossip plugin is there; the answer is remembered, so later polls send one request.
-            assertEquals(9, manager.connections().reused(), "Per server: the plugin check on the first poll, then one ping on each of the two later polls");
+            // The first poll of each server also asks whether the gossip plugin and the key-value plugin are there; the answers are remembered, so later polls send one request.
+            assertEquals(12, manager.connections().reused(), "Per server: the two plugin checks on the first poll, then one ping on each of the two later polls");
         }
     }
 

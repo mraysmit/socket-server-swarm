@@ -72,6 +72,9 @@ select{background:var(--panel);border:1px solid var(--line);border-radius:6px;pa
 .swarm .hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .swarm h3{font-size:14px;font-weight:600}
 .conv{font-family:var(--mono);font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+.kvline{font-family:var(--mono);font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+.kvline.ok{color:var(--ok)}
+.kvline.warn{color:var(--warn)}
 .meter{height:5px;background:var(--soft);border-radius:3px;overflow:hidden}
 .meter i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .chips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
@@ -458,6 +461,8 @@ let LIVE=false,lastOk=0,pollFailures=0,seenSwarms=new Set(),actionBusy=false,act
 const view={k:1,tx:0,ty:0},MINK=0.04,MAXK=8;
 let userView=false,focusMode=false,worldBox={x:0,y:0,w:1000,h:640},dockTab='activity',dockOpen=true,fitDone=false;
 const announced=new Set(),convState={},bigState=new Map();
+/* key-value replication: the last summary per swarm, and how many snapshots in a row it has been out of step */
+const kvBy={},kvBad={};
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const hex=()=>Math.random().toString(16).slice(2,10).padEnd(8,'0');
@@ -671,6 +676,18 @@ function applySnapshot(snap,first){
       if(!isNew&&!wasUp&&o.up&&announce)ev('restarted',`${o.id} is answering again`);
       if(s.gossip)applyGossip(o,s.gossip,announce);
       else{o.gossip=false;o.view=new Map();o.truncated=false;}
+      o.kv=s.kv||null;
+    }
+    const kvNow=sw.kvSync||null,kvWas=kvBy[sw.name]||null;kvBy[sw.name]=kvNow;
+    if(kvNow){
+      const all=kvNow.inSync===kvNow.replicating;
+      kvBad[sw.name]=all?0:(kvBad[sw.name]||0)+1;
+      /* a write takes a moment to reach everyone, so a difference is reported only once it has lasted two snapshots */
+      if(announce&&kvWas){
+        const wasAll=kvWas.inSync===kvWas.replicating;
+        if(all&&!wasAll)ev('converged',`${sw.name}: all ${kvNow.replicating} servers hold the same key-value pairs`);
+        else if(!all&&kvBad[sw.name]===2)ev('suspect',`${sw.name}: ${kvNow.inSync} of ${kvNow.replicating} servers hold the same key-value pairs`);
+      }
     }
   }
   for(const name of seenSwarms)if(!names.has(name)&&announce)ev('stopped',`swarm ${name} was stopped`);
@@ -822,11 +839,30 @@ function updatePulses(){
 function renderSwarms(){
   const html=swarms().map(s=>`<section class="swarm"><div class="hd"><h3>${esc(s)}</h3><span class="conv" data-conv="${s}"></span></div>
     <div class="meter"><i data-bar="${s}"></i></div>
+    <div class="kvline" data-kv="${s}" hidden></div>
     <ul class="chips">${nodes.filter(n=>n.swarm===s).map(n=>`<li><button class="chip st-${state(n)}${sel===n?' on':''}" data-act="select" data-id="${n.id}" data-key="c-${n.id}" aria-pressed="${sel===n}" title="${n.id}"><span class="dot"></span>${pad(n.n)}</button></li>`).join('')}</ul></section>`).join('');
   setHTML($('#swarms'),html||(LIVE?'<p class="hint" style="border:0">No swarms yet. Enter a name and a number of servers above, then press Start.</p>':''));
   for(const s of swarms()){const c=conv(s),v=c===null?0:Math.round(c*100);
     const a=$(`[data-conv="${s}"]`),b=$(`[data-bar="${s}"]`);
-    if(a)a.textContent=c===null?'—':v+'% in sync';if(b)b.style.width=v+'%';}
+    if(a)a.textContent=c===null?'—':v+'% in sync';if(b)b.style.width=v+'%';
+    const line=$(`[data-kv="${s}"]`),kv=kvBy[s];
+    if(line){
+      line.hidden=!kv;
+      if(kv){
+        const all=kv.inSync===kv.replicating;
+        line.textContent=`kv: ${kv.inSync} of ${kv.replicating} in sync`;
+        line.className='kvline '+(all?'ok':'warn');
+        line.title=all?'Every server holds the same key-value pairs (same root '+kv.root+')':'Servers whose key-value root differs from the one most share ('+kv.root+') have not settled yet';
+      }
+    }
+  }
+}
+/* the selected server's key-value facts: what it holds and how its comparisons with other servers have gone */
+function kvFacts(o){
+  const k=o.kv;if(!k)return '';
+  const sync=k.sync||{},last=(sync.peers||[]).map(p=>p.lastResult).join(', ');
+  return `<dt>kv replication</dt><dd>${esc(k.replication)}</dd><dt>kv pairs</dt><dd>${k.pairs}${k.deleted?' (+'+k.deleted+' deleted)':''}</dd><dt>kv root</dt><dd>${esc(k.root||'')}</dd>`
+    +(k.replication==='on'?`<dt>kv comparisons</dt><dd>${sync.rounds||0} rounds, ${sync.differences||0} differed, ${sync.failures||0} failed${last?' ('+esc(last)+')':''}</dd>`:'');
 }
 function pill(t){return `<span class="pill p-${t}">${t.replace('_',' ')}</span>`;}
 function renderPanel(){
@@ -842,7 +878,7 @@ function renderPanel(){
   const facts=noGossip
     ?`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Admin status</dt><dd>${o.up?'ALIVE':'not answering'}</dd></dl>`
     :`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Boot ID</dt><dd>${o.boot}</dd><dt>Heartbeat</dt><dd>${o.hb}</dd><dt>Rounds</dt><dd>${o.rounds}</dd><dt>Exchanges received</dt><dd>${o.inbound}</dd><dt>Failed outbound</dt><dd>${o.failed}</dd><dt>Isolated</dt><dd>${o.started&&o.isolated?'true':'false'}</dd><dt>Sees live peers</dt><dd>${k?k.c+' of '+k.n:'—'}</dd></dl>`;
-  setHTML($('#insp-facts'),facts);
+  setHTML($('#insp-facts'),facts.replace(/<\/dl>$/,kvFacts(o)+'</dl>'));
   const canLeave=o.up&&!o.left&&(!LIVE||o.gossip)&&!actionBusy,canStop=o.up&&!actionBusy,canRestart=o.started&&(!o.up||o.left)&&!actionBusy,canRemove=!actionBusy;
   const leaveTip=LIVE&&!o.gossip?'Needs the gossip plugin (start the harness with --gossip)':'Publish a graceful departure to the gossip peers';
   setHTML($('#insp-actions'),`<div class="actions"><button class="btn" data-act="leave" data-key="a-leave" ${canLeave?'':'disabled'} title="${leaveTip}">Leave gracefully</button><button class="btn danger" data-act="stop" data-key="a-stop" ${canStop?'':'disabled'} title="Close the server without telling its peers">Stop</button><button class="btn" data-act="restart" data-key="a-restart" ${canRestart?'':'disabled'} title="Start again with a new boot ID">Restart</button><button class="btn danger" data-act="remove" data-key="a-remove" ${canRemove?'':'disabled'} title="Take this server out of the swarm for good. With gossip it first announces that it is leaving.">Remove</button></div>${actionNote?`<p class="hint" role="status" style="border:0">${esc(actionNote)}</p>`:''}`);

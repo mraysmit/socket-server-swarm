@@ -179,6 +179,12 @@ public final class SwarmManager implements AutoCloseable {
     private final java.util.Set<Integer> withoutGossip = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     boolean knownWithoutGossip(int port) { return withoutGossip.contains(port); }
+
+    /** Ports of servers that answered the kv check with "unknown instruction", so the key-value plugin is not loaded there. */
+    private final java.util.Set<Integer> withoutKv = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    boolean knownWithoutKv(int port) { return withoutKv.contains(port); }
+    void markWithoutKv(int port) { withoutKv.add(port); }
     void markWithoutGossip(int port) { withoutGossip.add(port); }
 
     public List<CommandReply> send(String name, String input) throws IOException {

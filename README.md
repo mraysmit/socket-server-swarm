@@ -131,13 +131,22 @@ mvn compile exec:java "-Dexec.args=--gossip-fast --kv-replicate --plugins-dir ..
 
 Then `start kv 5`, and once the swarm has settled, `call kv-Server-001 {"instruction":"kv","parameters":{"operation":"put","key":"colour","value":"blue"}}`
 and the same `get` on any other server: the pair is there. In the page, use the Command tab (the kv entries of the Try row and
-the command reference). `kv status` shows whether replication is on and how many pushes a server has made. The harness writes the
+the command reference). `kv status` shows whether replication is on, how many pairs the server holds, a root hash that is the same on servers holding the same
+pairs, how many pushes it has made, and how its comparisons with other servers have gone. The harness writes the
 plugin's configuration file itself, sets `-Dkv.config` for the JVM, and removes both when it closes. Without `--kv-replicate`
 nothing changes: each server keeps its own pairs.
 
-This is the first phase of replication (see the plugin project's `docs/REPLICATION_PLAN.md`). A write is pushed to the servers
-alive at that moment. A server that was down, or not yet seen as alive, does not catch up afterwards, and a push that fails is not
-retried. Those arrive in the next phase.
+A write is pushed to the servers alive at that moment, and every server also compares its pairs with a random other server every
+two seconds (`sync.round.millis`), exchanging only what differs. So a push that failed is repaired by the next comparison, a server
+that was stopped catches up when it is restarted, a server added to a running swarm receives everything written before it joined, and
+a server that starts pulls from a peer as soon as it finds one. Two servers that write the same key at once end up with the same
+value, the later write. The page shows `kv: N of M in sync` under each swarm that is replicating (servers up and replicating that hold
+the root most of them share), the selected server's kv pairs, root and comparisons in the inspector, and an event when a swarm falls
+out of step for more than a moment or settles again. Deletions are remembered for 30 minutes (`namespace.kv.tombstone.retention.millis`),
+so a server that is away longer than that can bring a deleted key back.
+
+This is the second phase of replication (see the plugin project's `docs/REPLICATION_PLAN.md`). It is not yet efficient for a large
+swarm: every push and every comparison opens a new connection, and a write is pushed to every server alive. Those are the next phase.
 
 ## Swarm UI
 

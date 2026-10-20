@@ -123,7 +123,9 @@ The same operations are available in the console if you prefer it: `send alpha h
 If you started the harness with `--gossip-fast --kv-replicate` and both plugin folders (see the README), the servers copy each
 write to the others. Start a swarm, open the **Command** tab, send a kv `put` (the **put** button under **kv**) to one server, then
 choose another server in the list and send a `get`: the pair is there. `status` under kv shows that replication is on and how many
-pushes the server has made. In this first version a server that was down when a write happened does not catch up afterwards.
+pushes the server has made, its root (the same on servers holding the same pairs) and how its comparisons with other servers have gone.
+A server that was stopped catches up when you restart it, and under each replicating swarm the page shows **kv: N of M in sync**. Try it:
+stop a server with the **Stop** button, put a pair on another, then press **Restart** and watch the line return to all in sync.
 
 ## 8. Stop
 

@@ -141,6 +141,87 @@ class SwarmKvReplicationTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void theSnapshotCarriesEachServersKvStatusAndTheSwarmsInSyncSummary() throws Exception {
+        requirePlugins();
+        try (var manager = swarm(true)) {
+            var servers = manager.start("kv", 3);
+            awaitGossipConverged(manager, servers);
+            kv(manager, servers.get(0).serverId(), Map.of("operation", "put", "key", "a", "value", "1"));
+            await("the snapshot to show all three servers in sync", () -> {
+                var swarm = ((List<Map<String, Object>>) SwarmSnapshot.take(manager).get("swarms")).getFirst();
+                var summary = (Map<String, Object>) swarm.get("kvSync");
+                return summary != null && Integer.valueOf(3).equals(summary.get("inSync")) && Integer.valueOf(3).equals(summary.get("replicating"));
+            });
+            var swarm = ((List<Map<String, Object>>) SwarmSnapshot.take(manager).get("swarms")).getFirst();
+            var roots = new java.util.HashSet<Object>();
+            for (var server : (List<Map<String, Object>>) swarm.get("servers")) {
+                var status = (Map<String, Object>) server.get("kv");
+                assertEquals("on", status.get("replication"));
+                assertEquals(1, ((Number) status.get("pairs")).intValue());
+                assertNotNull(status.get("sync"));
+                roots.add(status.get("root"));
+            }
+            assertEquals(1, roots.size(), "Every server holds the same root");
+        }
+    }
+
+    @Test
+    void aServerAddedToARunningSwarmReceivesEverythingThatWasWrittenBeforeItJoined() throws Exception {
+        requirePlugins();
+        try (var manager = swarm(true)) {
+            var servers = manager.start("kv", 3);
+            awaitGossipConverged(manager, servers);
+            for (int i = 0; i < 25; i++) { kv(manager, servers.get(i % 3).serverId(), Map.of("operation", "put", "key", "before-" + i, "value", i)); }
+            await("the first servers to share everything", () -> onEveryServer(manager, servers, "before-24"));
+            var added = manager.addServers("kv", 1).getFirst();
+            await("the added server to hold every earlier pair", () -> {
+                for (int i = 0; i < 25; i++) { if (!found(manager, added.serverId(), "before-" + i)) { return false; } }
+                return true;
+            });
+        }
+    }
+
+    @Test
+    void aServerThatWasStoppedAndRestartedHasWhatItMissedAndWhatItHadBefore() throws Exception {
+        requirePlugins();
+        try (var manager = swarm(true)) {
+            var servers = manager.start("kv", 3);
+            awaitGossipConverged(manager, servers);
+            String third = servers.get(2).serverId();
+            kv(manager, servers.get(0).serverId(), Map.of("operation", "put", "key", "before", "value", "1"));
+            await("the pair to reach everyone", () -> onEveryServer(manager, servers, "before"));
+            manager.stopServer(third);
+            kv(manager, servers.get(0).serverId(), Map.of("operation", "put", "key", "during", "value", "2"));
+            kv(manager, servers.get(1).serverId(), Map.of("operation", "delete", "key", "before"));
+            manager.restartServer(third);
+            await("the restarted server to catch up", () -> found(manager, third, "during") && !found(manager, third, "before"));
+        }
+    }
+
+    @Test
+    void twoServersWritingTheSameKeyAtOnceAgreeOnTheValueEverywhere() throws Exception {
+        requirePlugins();
+        try (var manager = swarm(true)) {
+            var servers = manager.start("kv", 4);
+            awaitGossipConverged(manager, servers);
+            var one = servers.get(0).serverId();
+            var two = servers.get(3).serverId();
+            kv(manager, one, Map.of("operation", "put", "key", "contested", "value", "from-one"));
+            kv(manager, two, Map.of("operation", "put", "key", "contested", "value", "from-two"));
+            await("every server to hold the same value", () -> {
+                var values = new java.util.HashSet<Object>();
+                for (var server : servers) {
+                    try { values.add(kv(manager, server.serverId(), Map.of("operation", "get", "key", "contested")).get("value")); }
+                    catch (IOException e) { return false; }
+                }
+                return values.size() == 1;
+            });
+            assertEquals("from-two", kv(manager, one, Map.of("operation", "get", "key", "contested")).get("value"), "The later write wins");
+        }
+    }
+
+    @Test
     void withoutKvReplicationAWriteStaysOnTheServerThatTookIt() throws Exception {
         requirePlugins();
         try (var manager = swarm(false)) {

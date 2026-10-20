@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -78,6 +80,65 @@ class SwarmKvTest {
         try (var manager = new SwarmManager(List.of(), GossipSettings.fast())) {
             manager.start("plain", 1);
             assertNull(System.getProperty("kv.config"));
+        }
+    }
+
+    private static Map<String, Object> server(boolean alive, String replication, String root) {
+        var server = new LinkedHashMap<String, Object>();
+        server.put("alive", alive);
+        if (replication == null) {
+            server.put("kv", null);
+        } else {
+            var kv = new LinkedHashMap<String, Object>();
+            kv.put("replication", replication);
+            kv.put("root", root);
+            server.put("kv", kv);
+        }
+        return server;
+    }
+
+    @Test
+    void theSummaryCountsTheServersHoldingTheSameRootAsTheMajority() {
+        var summary = SwarmSnapshot.kvSync(List.of(server(true, "on", "aaaa"), server(true, "on", "aaaa"), server(true, "on", "aaaa")));
+        assertEquals(Map.of("replicating", 3, "inSync", 3, "root", "aaaa"), summary);
+    }
+
+    @Test
+    void aServerWithAnotherRootIsLeftOutOfTheInSyncCount() {
+        var summary = SwarmSnapshot.kvSync(List.of(server(true, "on", "aaaa"), server(true, "on", "bbbb"), server(true, "on", "aaaa"), server(true, "on", "cccc")));
+        assertEquals(Map.of("replicating", 4, "inSync", 2, "root", "aaaa"), summary);
+    }
+
+    @Test
+    void aTieForTheMajorityIsBrokenTheSameWayEveryTime() {
+        var summary = SwarmSnapshot.kvSync(List.of(server(true, "on", "bbbb"), server(true, "on", "aaaa")));
+        assertEquals(Map.of("replicating", 2, "inSync", 1, "root", "aaaa"), summary, "The smaller root, so the page does not flicker between two");
+    }
+
+    @Test
+    void serversThatAreDownOrNotReplicatingOrWithoutKvAreNotCounted() {
+        var summary = SwarmSnapshot.kvSync(List.of(server(true, "on", "aaaa"), server(false, "on", "zzzz"), server(true, "off", "bbbb"), server(true, null, null)));
+        assertEquals(Map.of("replicating", 1, "inSync", 1, "root", "aaaa"), summary);
+    }
+
+    @Test
+    void whenNoServerIsReplicatingThereIsNoSummary() {
+        assertNull(SwarmSnapshot.kvSync(List.of(server(true, "off", "aaaa"), server(true, null, null))));
+        assertNull(SwarmSnapshot.kvSync(List.of()));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aSwarmWithoutTheKvPluginHasNoKvEntryAndIsAskedOnlyOnce() throws Exception {
+        try (var manager = new SwarmManager()) {
+            var endpoints = manager.start("plain", 2);
+            for (int poll = 0; poll < 2; poll++) {
+                var snapshot = SwarmSnapshot.take(manager);
+                var swarm = ((List<Map<String, Object>>) snapshot.get("swarms")).getFirst();
+                assertNull(swarm.get("kvSync"));
+                for (var server : (List<Map<String, Object>>) swarm.get("servers")) { assertNull(server.get("kv"), server.toString()); }
+            }
+            for (var endpoint : endpoints) { assertTrue(manager.knownWithoutKv(endpoint.port()), endpoint.serverId()); }
         }
     }
 
