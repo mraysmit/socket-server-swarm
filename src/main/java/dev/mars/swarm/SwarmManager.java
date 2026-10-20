@@ -36,6 +36,8 @@ public final class SwarmManager implements AutoCloseable {
     private final List<Path> pluginDirectories;
     private final ServerFactory factory;
     private final GossipSettings gossip;
+    private final boolean kvReplicate;
+    private KvConfigFile kvFile;
     private GossipConfigFile gossipFile;
     private final ConnectionPool connections = new ConnectionPool();
     private volatile boolean closed;
@@ -47,10 +49,19 @@ public final class SwarmManager implements AutoCloseable {
     public SwarmManager(List<Path> pluginDirectories, GossipSettings gossip) {
         this(pluginDirectories, gossip, ServerInstance::start);
     }
+    /** With {@code kvReplicate}, every server runs the key-value plugin with replication on, which needs gossip for its peers. */
+    public SwarmManager(List<Path> pluginDirectories, GossipSettings gossip, boolean kvReplicate) {
+        this(pluginDirectories, gossip, kvReplicate, ServerInstance::start);
+    }
     SwarmManager(List<Path> pluginDirectories, ServerFactory factory) { this(pluginDirectories, null, factory); }
     SwarmManager(List<Path> pluginDirectories, GossipSettings gossip, ServerFactory factory) {
+        this(pluginDirectories, gossip, false, factory);
+    }
+
+    SwarmManager(List<Path> pluginDirectories, GossipSettings gossip, boolean kvReplicate, ServerFactory factory) {
         this.pluginDirectories = List.copyOf(pluginDirectories);
         this.gossip = gossip;
+        this.kvReplicate = kvReplicate;
         this.factory = factory;
     }
 
@@ -69,6 +80,7 @@ public final class SwarmManager implements AutoCloseable {
         var ordered = new ArrayList<ServerInstance>();
         boolean committed = false;
         try {
+            if (kvReplicate && kvFile == null) { kvFile = KvConfigFile.open(); }
             if (gossip != null) {
                 if (gossipFile == null) { gossipFile = new GossipConfigFile(gossip); }
                 gossipFile.declare(name, count);
@@ -393,6 +405,7 @@ public final class SwarmManager implements AutoCloseable {
             finally {
                 connections.close();
                 if (gossipFile != null) { gossipFile.close(); }
+                if (kvFile != null) { kvFile.close(); }
             }
         }
     }

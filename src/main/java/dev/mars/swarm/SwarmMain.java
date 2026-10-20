@@ -27,10 +27,10 @@ public final class SwarmMain {
             """;
 
     static final String USAGE = "Usage: SwarmMain [--plugins-dir <directory>]... [--gossip | --gossip-fast]"
-            + " [--gossip-option <key=value>]... [--ui-port <port>] [--no-ui]";
+            + " [--gossip-option <key=value>]... [--kv-replicate] [--ui-port <port>] [--no-ui]";
 
     /** Command-line settings; the UI is on by default at {@link UiServer#DEFAULT_PORT}. Gossip is off unless asked for. */
-    record Options(java.util.List<Path> pluginDirectories, boolean uiEnabled, int uiPort, GossipSettings gossip) { }
+    record Options(java.util.List<Path> pluginDirectories, boolean uiEnabled, int uiPort, GossipSettings gossip, boolean kvReplicate) { }
 
     public static void main(String[] args) throws IOException {
         if (args.length == 1 && args[0].equals("--help")) {
@@ -42,7 +42,7 @@ public final class SwarmMain {
         var activity = new SocketActivity();
         var installed = options.uiEnabled() ? activity.install() : null;
         var manager = options.gossip() == null ? new SwarmManager(options.pluginDirectories())
-                : new SwarmManager(options.pluginDirectories(), options.gossip());
+                : new SwarmManager(options.pluginDirectories(), options.gossip(), options.kvReplicate());
         var shutdown = shutdownHook(manager);
         Runtime.getRuntime().addShutdownHook(shutdown);
         try (installed; manager;
@@ -84,10 +84,12 @@ public final class SwarmMain {
         boolean ui = true;
         int port = UiServer.DEFAULT_PORT;
         GossipSettings gossip = null;
+        boolean kvReplicate = false;
         var gossipOptions = new java.util.LinkedHashMap<String, String>();
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--no-ui" -> ui = false;
+                case "--kv-replicate" -> kvReplicate = true;
                 case "--gossip-option" -> {
                     String pair = value(args, i++);
                     int eq = pair.indexOf('=');
@@ -106,13 +108,16 @@ public final class SwarmMain {
         if (gossip != null && folders.isEmpty()) {
             throw new IllegalArgumentException("--gossip needs --plugins-dir pointing at the gossip plugin");
         }
+        if (kvReplicate && gossip == null) {
+            throw new IllegalArgumentException("--kv-replicate needs --gossip or --gossip-fast, because the key-value plugin finds its peers through gossip");
+        }
         if (!gossipOptions.isEmpty()) {
             if (gossip == null) { throw new IllegalArgumentException("--gossip-option needs --gossip or --gossip-fast"); }
             var merged = new java.util.LinkedHashMap<>(gossip.options());
             merged.putAll(gossipOptions);
             gossip = new GossipSettings(gossip.advertiseHost(), merged);
         }
-        return new Options(java.util.List.copyOf(folders), ui, port, gossip);
+        return new Options(java.util.List.copyOf(folders), ui, port, gossip, kvReplicate);
     }
 
     private static String value(String[] args, int option) {

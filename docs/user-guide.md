@@ -118,6 +118,13 @@ activity, Command, Events), where a small note opens beside it; Escape or a clic
 The same operations are available in the console if you prefer it: `send alpha hello`,
 `test alpha 1000 100`, `server stop alpha-Server-002`.
 
+### Copying key-value pairs between servers
+
+If you started the harness with `--gossip-fast --kv-replicate` and both plugin folders (see the README), the servers copy each
+write to the others. Start a swarm, open the **Command** tab, send a kv `put` (the **put** button under **kv**) to one server, then
+choose another server in the list and send a `get`: the pair is there. `status` under kv shows that replication is on and how many
+pushes the server has made. In this first version a server that was down when a write happened does not catch up afterwards.
+
 ## 8. Stop
 
 Choose a swarm and press **Stop**, or press **Stop all**. To end the harness itself, type `quit` in the

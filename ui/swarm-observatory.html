@@ -423,6 +423,7 @@ body{margin:0}
             <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"get","key":"colour"}}' title="Needs the key-value plugin. Reads a key from this server.">get</button>
             <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"delete","key":"colour"}}' title="Needs the key-value plugin. Removes a key from this server.">delete</button>
             <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"list"}}' title="Needs the key-value plugin. Lists every key on this server.">list</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"status"}}' title="Needs the key-value plugin. Whether replication is on, what this server holds, and how many pushes it has made.">status</button>
             <span class="grp-label">other</span>
             <button class="btn small" type="button" data-fill='{"instruction":"nope","parameters":{}}' title="Shows how the server answers an instruction it does not have">unknown instruction</button>
           </div>
@@ -1007,12 +1008,14 @@ const REF=[
     {t:'members, smaller page',d:'Ask for fewer rows. A page that is not the last has a cursor to continue from.',c:gossipReq('{"operation":"members","limit":3}')},
     {t:'members, next page',d:'Replace the cursor text with the cursor from the previous reply. As written it is refused, which shows the error.',c:gossipReq('{"operation":"members","limit":3,"cursor":"PASTE-THE-CURSOR-HERE"}')},
     {t:'leave',d:'Announces that this server is leaving, so its peers rate it LEFT quickly. The server keeps running.',c:gossipReq('{"operation":"leave"}')}]},
-  {group:'kv',need:'needs the key-value plugin: --plugins-dir .../kv-plugin/target. Each server has its own pairs, kept in memory.',items:[
+  {group:'kv',need:'needs the key-value plugin: --plugins-dir .../kv-plugin/target. Pairs are kept in memory on each server. To copy them to the other servers, start the harness with --gossip-fast and --kv-replicate.',items:[
     {t:'put, text value',d:'Stores a value under a key, or replaces it. The reply says whether the key was created.',c:kvReq('{"operation":"put","key":"colour","value":"blue"}')},
     {t:'put, object value',d:'A value can be any JSON: text, a number, true or false, null, an object or an array. Up to 16 KB; keys up to 256 characters; 1,000 pairs per server.',c:kvReq('{"operation":"put","key":"limits","value":{"pairs":1000,"strict":true}}')},
     {t:'get',d:'Reads a key from this server. The reply says whether it was found, and gives the value.',c:kvReq('{"operation":"get","key":"colour"}')},
     {t:'delete',d:'Removes a key. The reply says whether there was one to remove.',c:kvReq('{"operation":"delete","key":"colour"}')},
-    {t:'list',d:'Every key on this server, in order, with a count.',c:kvReq('{"operation":"list"}')}]},
+    {t:'list',d:'Every key on this server, in order, with a count.',c:kvReq('{"operation":"list"}')},
+    {t:'status',d:'Whether replication is on, how many pairs and deletion records this server holds, and counters: pushes made and failed, and records received, ignored (not newer) and refused (over a limit). With replication on, the push counter rises with every write.',c:kvReq('{"operation":"status"}')},
+    {t:'apply (servers use this)',d:'How servers hand each other records when replication is on, so you do not normally type it. A record is a key, a value (or deleted set to true) and a version: w is milliseconds, c a counter and n the writing server. It is kept only if its version is newer than what this server holds for that key, and the reply counts how many were applied, ignored and refused. With replication off the server refuses it, which is worth seeing.',c:kvReq('{"operation":"apply","records":[{"key":"from-a-peer","value":"hello","version":{"w":1760900000000,"c":0,"n":"manual"},"deleted":false}]}')}]},
   {group:'math.multiply',need:'needs the example multiply plugin: --plugins-dir .../multiply-plugin/target',items:[
     {t:'multiply',d:'Multiplies two numbers and returns the product.',c:'{"instruction":"math.multiply","parameters":{"a":6,"b":7}}'}]},
   {group:'Errors worth seeing',need:'work on any server',items:[

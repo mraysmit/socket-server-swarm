@@ -119,6 +119,26 @@ the property cleared when the harness closes. Without these options nothing chan
 Check a server with
 `send alpha {"instruction":"gossip","parameters":{"operation":"members"}}`.
 
+### Key-value replication
+
+With the key-value plugin loaded as well, `--kv-replicate` makes every server copy its writes to the other servers of its swarm.
+It needs gossip, because each server finds its peers by asking its own gossip plugin who it rates alive, so it needs
+`--gossip` or `--gossip-fast`, and both plugin folders:
+
+```powershell
+mvn compile exec:java "-Dexec.args=--gossip-fast --kv-replicate --plugins-dir ../socket-server-threadpool/plugins/gossip-plugin/target --plugins-dir ../socket-server-threadpool/plugins/kv-plugin/target"
+```
+
+Then `start kv 5`, and once the swarm has settled, `call kv-Server-001 {"instruction":"kv","parameters":{"operation":"put","key":"colour","value":"blue"}}`
+and the same `get` on any other server: the pair is there. In the page, use the Command tab (the kv entries of the Try row and
+the command reference). `kv status` shows whether replication is on and how many pushes a server has made. The harness writes the
+plugin's configuration file itself, sets `-Dkv.config` for the JVM, and removes both when it closes. Without `--kv-replicate`
+nothing changes: each server keeps its own pairs.
+
+This is the first phase of replication (see the plugin project's `docs/REPLICATION_PLAN.md`). A write is pushed to the servers
+alive at that moment. A server that was down, or not yet seen as alive, does not catch up afterwards, and a push that fails is not
+retried. Those arrive in the next phase.
+
 ## Swarm UI
 
 The harness also starts an HTTP endpoint on `http://localhost:8088/`. It serves the

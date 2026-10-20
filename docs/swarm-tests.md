@@ -2,7 +2,7 @@
 
 ## Overview
 
-The suite has 77 test methods (89 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 90 test methods (102 cases with parameterized inputs) in eight JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
@@ -122,6 +122,34 @@ The suite has 77 test methods (89 cases with parameterized inputs) in six JUnit 
 | consoleStartsAGossipSwarmAndSendsAGracefulLeave | A console session starts a gossip swarm, sends a graceful leave to one server, and cleans up its config. |
 | aSwarmLargerThanOneMembersPageIsReadWholeByFollowingTheCursor | With 40 gossip servers, one members page of 32 is cut short, and `SwarmSnapshot.fullMembers` follows the cursor to return all 40 members exactly once, each ALIVE. |
 | swarmSeededAtAnotherSwarmRejectsItAndKeepsItsOwnMembers | A server seeded at another swarm's server has its exchange turned away, and neither swarm lists the other's members. |
+
+### SwarmKvTest (8 methods)
+
+Key-value replication in the harness, without any plugin jar.
+
+| Test | What it verifies |
+| --- | --- |
+| kvReplicationIsOffByDefault | `--kv-replicate` is not set unless given. |
+| theKvReplicateOptionSwitchesItOnAlongsideGossip | The option is accepted in any position next to `--gossip` or `--gossip-fast`. |
+| kvReplicationNeedsGossipBecauseItFindsItsPeersThere | Using it without gossip is refused with a message that names both options. |
+| theGeneratedFileTurnsReplicationOnAndIsNamedByTheKvConfigProperty | `KvConfigFile` writes a file containing `replication=on` and sets the `kv.config` property to its path. |
+| closingRemovesTheFileAndTheProperty | Closing deletes the file and clears the property, and closing twice is harmless. |
+| closingLeavesAPropertyThatNowPointsAtAnotherFileAlone | A property that has since been pointed elsewhere is not cleared. |
+| aManagerAskedForKvReplicationHasTheConfigFileWhileItRunsAndRemovesItOnClose | A manager built with the flag creates the file when the first swarm starts, and removes it and the property on close. |
+| withoutKvReplicationTheManagerLeavesTheKvConfigPropertyAlone | A manager built without the flag, or with the older constructors, never sets the property. |
+
+### SwarmKvReplicationTest (5 methods)
+
+Real servers with the real gossip and key-value plugins. They are skipped when either plugin has not been built in the sibling
+project. Each waits for gossip to rate every member alive (its `members` list has a row for the server itself) before writing.
+
+| Test | What it verifies |
+| --- | --- |
+| aWriteOnEachOfFiveServersBecomesReadableOnAllFive | A `put` on each of five servers in turn is readable on all five, and the value is the one written. |
+| aDeleteOnOneServerIsSeenOnAllFive | A `delete` on a different server removes the pair everywhere. |
+| anObjectValueSurvivesTheJourneyBetweenRealServers | An object with a nested object and an array reads back identically on another server. |
+| statusOnTheWritingServerShowsReplicationOnAndItsPushes | `kv status` reports replication on and a push count that reaches the number of peers. |
+| withoutKvReplicationAWriteStaysOnTheServerThatTookIt | With the flag off, a write stays on the server that took it, and `status` reports replication off. |
 
 ## Running the tests
 
