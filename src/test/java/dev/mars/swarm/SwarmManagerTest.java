@@ -1,6 +1,7 @@
 package dev.mars.swarm;
 
 import dev.mars.server.ServerInstance;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -9,10 +10,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.net.ServerSocket;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -260,6 +263,56 @@ class SwarmManagerTest {
         closed.close();
         assertThrows(IllegalStateException.class, () -> closed.stopServer("gone-Server-001"));
         assertThrows(IllegalStateException.class, () -> closed.restartServer("gone-Server-001"));
+    }
+
+    @Test
+    void theKeyValuePluginAnswersCommandsToOneServerAndEachServerKeepsItsOwnPairs() throws Exception {
+        var plugin = Path.of("..", "socket-server-threadpool", "plugins", "kv-plugin", "target");
+        boolean built = Files.isDirectory(plugin);
+        if (built) { try (var files = Files.list(plugin)) { built = files.anyMatch(file -> file.getFileName().toString().endsWith(".jar")); } }
+        Assumptions.assumeTrue(built, "Build the key-value plugin first: mvn -f ../socket-server-threadpool/plugins/kv-plugin/pom.xml package");
+        try (var manager = new SwarmManager(List.of(plugin))) {
+            manager.start("kv", 2);
+            String one = "kv-Server-001", two = "kv-Server-002";
+
+            var put = manager.command(one, "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"put\",\"key\":\"colour\",\"value\":\"blue\"}}");
+            assertEquals(Boolean.TRUE, put.get("ok"), put.toString());
+            assertEquals(Map.of("key", "colour", "created", true), put.get("result"));
+            var object = manager.command(one, "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"put\",\"key\":\"limits\",\"value\":{\"pairs\":1000,\"strict\":true}}}");
+            assertEquals(Boolean.TRUE, object.get("ok"), object.toString());
+
+            var get = manager.command(one, "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"get\",\"key\":\"limits\"}}");
+            @SuppressWarnings("unchecked") var found = (Map<String, Object>) get.get("result");
+            assertEquals(Boolean.TRUE, found.get("found"));
+            @SuppressWarnings("unchecked") var value = (Map<String, Object>) found.get("value");
+            assertEquals(1000, ((Number) value.get("pairs")).intValue(), "The object comes back as it was stored");
+            assertEquals(Boolean.TRUE, value.get("strict"));
+
+            var list = manager.command(one, "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"list\"}}");
+            @SuppressWarnings("unchecked") var listed = (Map<String, Object>) list.get("result");
+            assertEquals(List.of("colour", "limits"), listed.get("keys"), "Keys come back in order");
+            assertEquals(2, ((Number) listed.get("count")).intValue());
+
+            var other = manager.command(two, "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"get\",\"key\":\"colour\"}}");
+            assertEquals(Map.of("key", "colour", "found", false), other.get("result"), "Each server has its own store");
+
+            var delete = manager.command(one, "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"delete\",\"key\":\"colour\"}}");
+            assertEquals(Map.of("key", "colour", "deleted", true), delete.get("result"));
+            var again = manager.command(one, "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"delete\",\"key\":\"colour\"}}");
+            assertEquals(Map.of("key", "colour", "deleted", false), again.get("result"));
+
+            var missing = manager.command(one, "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"put\",\"key\":\"x\"}}");
+            assertEquals("ERROR", missing.get("status"));
+            assertEquals("INVALID_PARAMETERS", missing.get("errorCode"));
+            var unknown = manager.command(one, "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"explode\"}}");
+            assertEquals("INVALID_PARAMETERS", unknown.get("errorCode"));
+            assertTrue(unknown.get("errorMessage").toString().contains("Supported operations"), unknown.toString());
+        }
+        try (var manager = new SwarmManager()) {
+            manager.start("plain", 1);
+            var without = manager.command("plain-Server-001", "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"list\"}}");
+            assertEquals("UNKNOWN_INSTRUCTION", without.get("errorCode"), "A server that did not load the plugin does not have the instruction");
+        }
     }
 
     @Test

@@ -95,7 +95,8 @@ activity, Command, Events), where a small note opens beside it; Escape or a clic
 
 - **Command to one server:** open the **Command** tab in the bottom panel, pick a server (or click one), type a
   command and press Send. Plain text is sent as an echo; a JSON request such as
-  `{"instruction":"gossip","parameters":{"operation":"status"}}` is sent as a request, and the Try buttons fill in
+  `{"instruction":"gossip","parameters":{"operation":"status"}}` is sent as a request, and the small **i** at the start of the Try line opens a reference of every command with examples you can **Use**
+  (put in the box) or **Copy**; the Try buttons fill in
   examples. Every entry shows what was sent and exactly what came back: the result, or the error code and
   message, or why there was no reply (for example "Connection refused" for a stopped server). Use it to see how a
   server handles bad input. The console equivalent is `call alpha-Server-002 hello`.

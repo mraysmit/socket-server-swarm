@@ -41,6 +41,9 @@ h1,h2,h3,p{margin:0}
 .brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 .brand h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
 .tag{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:2px 6px}
+/* the live tag: green while the harness answers, red when it does not */
+.tag.ok{color:var(--ok)}
+.tag.bad{color:var(--bad)}
 .clock{font-family:var(--mono);font-size:12px;color:var(--mute)}
 .bar-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .btn{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 11px;cursor:pointer;line-height:1.2}
@@ -181,6 +184,7 @@ body.resizing-dock{cursor:ns-resize;user-select:none}
 .cmd-form input{flex:1 1 280px;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-family:var(--mono);font-size:12.5px;color:inherit}
 .cmd-form input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .cmd-presets{display:flex;gap:6px;padding:2px 14px 8px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--mute)}
+.cmd-presets .grp-label{margin-left:8px;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
 #cmd-log{flex:1;min-height:0;overflow:auto;border-top:1px solid var(--line)}
 .cmd-entry{padding:8px 14px;border-bottom:1px solid var(--line)}
 .cmd-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--mute)}
@@ -191,6 +195,24 @@ body.resizing-dock{cursor:ns-resize;user-select:none}
 .cmd-entry details{margin-top:4px;font-size:12px;color:var(--mute)}
 .cmd-entry details pre{margin:4px 0 0;white-space:pre-wrap;word-break:break-all;font-family:var(--mono)}
 .p-FAILED{color:var(--bad)} .p-UNPARSED{color:var(--warn)}
+.cmd-presets .info{margin:0 2px 0 -2px}
+dialog#cmd-ref{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:0;width:min(900px,94vw);max-height:86vh;box-shadow:0 20px 60px rgba(0,0,0,.3);font-family:var(--sans)}
+dialog#cmd-ref[open]{display:flex;flex-direction:column}
+dialog#cmd-ref::backdrop{background:rgba(10,20,30,.45)}
+dialog#cmd-ref>header{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line)}
+dialog#cmd-ref>header h2{font-size:15px;font-weight:600;font-family:var(--sans);letter-spacing:0;text-transform:none;color:var(--ink)}
+.ref-body{overflow:auto;padding:4px 18px 18px}
+.ref-intro{font-size:13px;color:var(--mute);margin:12px 0 0;line-height:1.5}
+.ref-group{margin-top:18px}
+.ref-group>h3{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);padding-bottom:6px;border-bottom:1px solid var(--line)}
+.ref-group>h3 .need{letter-spacing:0;text-transform:none;font-family:var(--sans);font-size:12px}
+.ref-item{padding:10px 0;border-bottom:1px solid var(--soft)}
+.ref-item:last-child{border-bottom:0}
+.ref-item>b{font-size:13px;font-weight:600}
+.ref-item>p{margin:2px 0 6px;font-size:12.5px;color:var(--mute);line-height:1.45}
+.ref-code{display:flex;gap:8px;align-items:flex-start}
+.ref-code code{flex:1;min-width:0;font-family:var(--mono);font-size:12px;line-height:1.5;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);word-break:break-all;user-select:all}
+.ref-code .btn{flex:none}
 #pane-activity{display:flex;flex-direction:column;overflow:hidden}
 #pane-activity .act-top{padding:8px 14px}
 #pane-activity .feedwrap{flex:1;min-height:0}
@@ -250,6 +272,11 @@ body{margin:0}
 <body>
 
 <div class="pop" id="pop" role="note" hidden></div>
+
+<dialog id="cmd-ref" aria-labelledby="cmd-ref-title">
+  <header><h2 id="cmd-ref-title">Command reference</h2><button class="btn small" id="cmd-ref-close" type="button">Close</button></header>
+  <div class="ref-body" id="cmd-ref-body"></div>
+</dialog>
 
 <div class="wrap">
   <div class="top">
@@ -385,12 +412,19 @@ body{margin:0}
             <button class="btn" id="cmd-go" type="submit">Send</button>
             <button class="btn small" id="cmd-clear" type="button" title="Clear the history below">Clear</button>
           </form>
-          <div class="cmd-presets" id="cmd-presets"><span>Try:</span>
-            <button class="btn small" type="button" data-fill='{"instruction":"echo","parameters":{"text":"hello"}}'>echo</button>
-            <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"status"}}'>gossip status</button>
-            <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"members"}}'>gossip members</button>
-            <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"leave"}}'>gossip leave</button>
-            <button class="btn small" type="button" data-fill='{"instruction":"nope","parameters":{}}'>unknown instruction</button>
+          <div class="cmd-presets" id="cmd-presets"><span>Try:</span><button class="info" type="button" id="cmd-ref-open" aria-haspopup="dialog" aria-label="Show every command with examples" title="Every command, with examples you can copy or use">i</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"echo","parameters":{"text":"hello"}}' title="The built-in echo command">echo</button>
+            <span class="grp-label">gossip</span>
+            <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"status"}}' title="Needs the gossip plugin">status</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"members"}}' title="Needs the gossip plugin">members</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"gossip","parameters":{"operation":"leave"}}' title="Needs the gossip plugin">leave</button>
+            <span class="grp-label">kv</span>
+            <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"put","key":"colour","value":"blue"}}' title="Needs the key-value plugin. Stores a value under a key on this server only.">put</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"get","key":"colour"}}' title="Needs the key-value plugin. Reads a key from this server.">get</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"delete","key":"colour"}}' title="Needs the key-value plugin. Removes a key from this server.">delete</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"list"}}' title="Needs the key-value plugin. Lists every key on this server.">list</button>
+            <span class="grp-label">other</span>
+            <button class="btn small" type="button" data-fill='{"instruction":"nope","parameters":{}}' title="Shows how the server answers an instruction it does not have">unknown instruction</button>
           </div>
           <div id="cmd-log" aria-live="polite"></div>
         </div>
@@ -829,7 +863,11 @@ function renderAll(){
   const banner=$('#banner');
   if(LIVE){
     const ago=Math.max(0,Math.round((T-lastOk)/1000));
-    $('#clock').textContent=pollFailures>0?`last update ${ago}s ago`:'live';
+    /* the green tag already says it is live, so the clock speaks only when updates have stopped */
+    $('#clock').textContent=pollFailures>0?`last update ${ago}s ago`:'';
+    const tag=$('#modetag');
+    tag.classList.toggle('ok',pollFailures===0);tag.classList.toggle('bad',pollFailures>0);
+    tag.title=pollFailures===0?'Connected to the harness':'The harness is not answering';
     banner.hidden=pollFailures<2;
     banner.textContent=`Lost contact with the harness. Showing the snapshot from ${ago}s ago; retrying.`;
   }else{
@@ -956,6 +994,58 @@ $('#ctl-test').addEventListener('submit',async e=>{
     +(j.elapsedMillis>0?' ('+Math.round(j.requests*1000/j.elapsedMillis)+' requests/s)':'')
     +(j.failed?'\n'+j.failed+' failed: '+quote(j.failures[0]||''):''),!j.ok);
 });
+/* the command reference: every command with an example that can be copied, or put straight into the command box */
+const kvReq=p=>'{"instruction":"kv","parameters":'+p+'}';
+const gossipReq=p=>'{"instruction":"gossip","parameters":'+p+'}';
+const REF=[
+  {group:'Built in',need:'always available',intro:'Plain text typed into the command box is sent as an echo. Anything starting with { is sent as a request: an instruction and its parameters. The page adds the version and a message ID.',items:[
+    {t:'Echo, plain text',d:'Type any text. It is wrapped as an echo request and comes back as "Received: ...".',c:'hello there'},
+    {t:'Echo, as a request',d:'The same thing written out in full: the shape every request has.',c:'{"instruction":"echo","parameters":{"text":"hello"}}'}]},
+  {group:'gossip',need:'needs the gossip plugin: start the harness with --gossip or --gossip-fast',items:[
+    {t:'status',d:'This server\u2019s gossip state: its swarm, boot ID, heartbeat, counters, whether it is isolated, and how it rates its peers.',c:gossipReq('{"operation":"status"}')},
+    {t:'members',d:'The members this server knows and how it rates each one (ALIVE, SUSPECT, DEAD, LEFT). One page of up to 32.',c:gossipReq('{"operation":"members"}')},
+    {t:'members, smaller page',d:'Ask for fewer rows. A page that is not the last has a cursor to continue from.',c:gossipReq('{"operation":"members","limit":3}')},
+    {t:'members, next page',d:'Replace the cursor text with the cursor from the previous reply. As written it is refused, which shows the error.',c:gossipReq('{"operation":"members","limit":3,"cursor":"PASTE-THE-CURSOR-HERE"}')},
+    {t:'leave',d:'Announces that this server is leaving, so its peers rate it LEFT quickly. The server keeps running.',c:gossipReq('{"operation":"leave"}')}]},
+  {group:'kv',need:'needs the key-value plugin: --plugins-dir .../kv-plugin/target. Each server has its own pairs, kept in memory.',items:[
+    {t:'put, text value',d:'Stores a value under a key, or replaces it. The reply says whether the key was created.',c:kvReq('{"operation":"put","key":"colour","value":"blue"}')},
+    {t:'put, object value',d:'A value can be any JSON: text, a number, true or false, null, an object or an array. Up to 16 KB; keys up to 256 characters; 1,000 pairs per server.',c:kvReq('{"operation":"put","key":"limits","value":{"pairs":1000,"strict":true}}')},
+    {t:'get',d:'Reads a key from this server. The reply says whether it was found, and gives the value.',c:kvReq('{"operation":"get","key":"colour"}')},
+    {t:'delete',d:'Removes a key. The reply says whether there was one to remove.',c:kvReq('{"operation":"delete","key":"colour"}')},
+    {t:'list',d:'Every key on this server, in order, with a count.',c:kvReq('{"operation":"list"}')}]},
+  {group:'math.multiply',need:'needs the example multiply plugin: --plugins-dir .../multiply-plugin/target',items:[
+    {t:'multiply',d:'Multiplies two numbers and returns the product.',c:'{"instruction":"math.multiply","parameters":{"a":6,"b":7}}'}]},
+  {group:'Errors worth seeing',need:'work on any server',items:[
+    {t:'Unknown instruction',d:'A server answers an instruction it does not have with UNKNOWN_INSTRUCTION. It is also what a gossip, kv or multiply command gets on a server that did not load that plugin.',c:'{"instruction":"nope","parameters":{}}'},
+    {t:'Missing parameter',d:'A kv put without a value is refused with INVALID_PARAMETERS and nothing is stored.',c:kvReq('{"operation":"put","key":"colour"}')},
+    {t:'Malformed request',d:'Not valid JSON. It is sent exactly as typed, so you see the server\u2019s own INVALID_REQUEST reply.',c:'{not json'},
+    {t:'Stopped server',d:'Stop a server, then send it anything: there is no reply, and the entry says why (connection refused).',c:'anyone there?'}]}
+];
+const REF_FLAT=REF.flatMap(g=>g.items);
+function renderReference(){
+  let i=0;
+  $('#cmd-ref-body').innerHTML='<p class="ref-intro">Each example is one line. <b>Use</b> puts it in the command box, ready to send or edit. <b>Copy</b> copies it, and clicking the text selects it all, so you can paste it anywhere. Commands for a plugin only work on servers that loaded it.</p>'
+    +REF.map(g=>'<section class="ref-group"><h3>'+esc(g.group)+'<span class="need">'+esc(g.need)+'</span></h3>'+(g.intro?'<p class="ref-intro" style="margin-top:8px">'+esc(g.intro)+'</p>':'')
+      +g.items.map(it=>{const k=i++;return '<div class="ref-item"><b>'+esc(it.t)+'</b><p>'+esc(it.d)+'</p><div class="ref-code"><code>'+esc(it.c)+'</code><button class="btn small" type="button" data-ref-use="'+k+'">Use</button><button class="btn small" type="button" data-ref-copy="'+k+'">Copy</button></div></div>';}).join('')
+      +'</section>').join('');
+}
+renderReference();
+const refDialog=$('#cmd-ref');
+$('#cmd-ref-open').addEventListener('click',()=>{if(!refDialog.open)refDialog.showModal();$('#cmd-ref-body').scrollTop=0;});
+$('#cmd-ref-close').addEventListener('click',()=>refDialog.close());
+refDialog.addEventListener('click',async e=>{
+  if(e.target===refDialog){refDialog.close();return;}
+  const use=e.target.closest('[data-ref-use]'),copy=e.target.closest('[data-ref-copy]');
+  if(use){const t=$('#cmd-text');t.value=REF_FLAT[use.dataset.refUse].c;refDialog.close();t.focus();t.setSelectionRange(t.value.length,t.value.length);return;}
+  if(copy){
+    const text=REF_FLAT[copy.dataset.refCopy].c;let ok=false;
+    try{await navigator.clipboard.writeText(text);ok=true;}catch{
+      const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';refDialog.appendChild(ta);ta.select();
+      try{ok=document.execCommand('copy');}catch{}ta.remove();
+    }
+    const old=copy.textContent;copy.textContent=ok?'Copied':'Select it';setTimeout(()=>{copy.textContent=old;},1500);
+  }
+});
 /* live mode: send one command to any server and show exactly what came back */
 const cmdLog=[],cmdHist=[];let cmdBusy=false,cmdPos=-1;
 function renderCommand(){
@@ -1026,7 +1116,7 @@ const INFO={
   actions:()=>'<p><b>Leave gracefully</b> Tells the gossip peers this server is leaving, so they rate it LEFT quickly. It keeps running. Needs gossip.</p><p><b>Stop</b> Closes the server without telling anyone, so its peers rate it SUSPECT and then DEAD. It stays listed.</p><p><b>Restart</b> Starts a stopped server again on the same ports, with a new boot ID.</p><p><b>Remove</b> Takes the server out of the swarm for good. With gossip it announces its departure first. It cannot be restarted.</p>',
   server:()=>'<p><b>Server</b> Everything about the selected server. The two tags under its ID say whether it is running and whether it has been asked to leave. <b>Main / admin</b> are its two ports.</p><p>With gossip: <b>Boot ID</b> identifies this run of the server (a restart gets a new one), <b>Heartbeat</b> is its own beat count, <b>Rounds</b> the gossip rounds it has run, <b>Exchanges received</b> and <b>Failed outbound</b> its gossip traffic, <b>Isolated</b> whether it has no peers, and <b>Sees live peers</b> how many members it rates ALIVE.</p><p>The table lists every member this server knows and how <b>this server</b> rates it (ALIVE, SUSPECT, DEAD, LEFT), with its heartbeat and seconds since news.</p>',
   activity:()=>'<p><b>Socket activity</b> Every request the selected server receives, one row each, read from its log. In the Conn column, #1234·15 is the 15th request on connection 1234. The numbers above the list count everything since the server started.</p><p><b>Pause feed</b> freezes the list so you can read it, and Resume catches up. Untick <b>Show gossip</b> to hide the constant gossip traffic.</p>'+PANEL_TIP,
-  command:()=>'<p><b>Command</b> Sends one command to the chosen server and shows exactly what came back. Plain text is sent as an echo; JSON is sent as a request. <b>Try</b> fills in examples, the up and down arrows recall earlier commands, and <b>Clear</b> empties the history.</p>'+PANEL_TIP,
+  command:()=>'<p><b>Command</b> Sends one command to the chosen server and shows exactly what came back. Plain text is sent as an echo; JSON is sent as a request. <b>Try</b> fills in an example request (echo, the gossip operations, the key-value operations, or an unknown instruction), the up and down arrows recall earlier commands, and <b>Clear</b> empties the history.</p><p><b>gossip</b> and <b>kv</b> commands only work on servers that loaded those plugins; otherwise the server answers UNKNOWN_INSTRUCTION. <b>kv</b> keeps its pairs in each server\u2019s own memory: a key put on one server is not on the others, and it is gone when the server stops.</p>'+PANEL_TIP,
   events:()=>'<p><b>Events</b> A log of changes this page has noticed: servers starting, stopping or leaving, ratings changing, swarms converging. It starts empty when the page loads.</p>'+PANEL_TIP,
   dock:()=>PANEL_TIP
 };

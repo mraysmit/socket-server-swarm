@@ -205,7 +205,10 @@ request such as `{"instruction":"gossip","parameters":{"operation":"status"}}`, 
 history shows the line sent, the status (OK, ERROR or FAILED), the time, the connection number, the result or the
 error code and message, and the raw reply. A request that is not valid is sent as typed, so the server's own
 complaint comes back; a stopped server shows "Connection refused", and a server that does not answer shows a timeout
-after 10 seconds. The Try buttons fill in an echo, the gossip operations and an unknown instruction. The up and down
+after 10 seconds. The small **i** at the start of the Try line opens a command reference: every command the harness's plugins
+provide (echo, the gossip operations, the key-value operations, the multiply example, and the error cases worth
+seeing), each with a one-line example, a short description, and **Use** (puts it in the command box) and **Copy**
+buttons; clicking the example text selects it all. Escape, Close or a click outside closes it. The Try buttons fill in the echo command, the gossip operations (`status`, `members`, `leave`), the key-value operations (`put`, `get`, `delete`, `list`) and an unknown instruction. The gossip and key-value ones answer only on servers that loaded those plugins (see the sections on gossip and external plugins); on others the server returns `UNKNOWN_INSTRUCTION`, which is itself worth seeing. The up and down
 arrows recall earlier commands, and Clear empties the history (which is also gone when the page is reloaded). It
 uses `POST /api/servers/<id>/command` with `{"text":"..."}`, which has the same protection as the other actions and
 answers 200 with the whole outcome even when the command failed, 404 for an unknown server and 400 for an empty or
@@ -260,6 +263,21 @@ so plugin dependencies can be stored in another supplied folder. No per-plugin
 classpath changes or host rebuild are needed. Duplicate directory paths are
 deduplicated; directories are not scanned recursively. Omitting the options uses
 built-in and application-classpath providers. Restart instances to reload JARs.
+
+The sibling project also has a key-value store plugin (`plugins/kv-plugin`, instruction `kv` with the operations
+`put`, `get`, `delete` and `list`; see its README). Build it, then load it into every server, with or without
+gossip:
+
+```powershell
+mvn -f ../socket-server-threadpool/plugins/kv-plugin/pom.xml clean verify
+mvn compile exec:java "-Dexec.args=--plugins-dir ../socket-server-threadpool/plugins/kv-plugin/target"
+mvn compile exec:java "-Dexec.args=--gossip-fast --plugins-dir ../socket-server-threadpool/plugins/gossip-plugin/target --plugins-dir ../socket-server-threadpool/plugins/kv-plugin/target"
+```
+
+In the page, start a swarm, open the **Command** tab, choose a server and press the **put**, **get**, **list** and
+**delete** buttons under **kv** to fill in a request, then Send. Each server keeps its own pairs in memory, so a key
+put on `alpha-Server-001` is not found on `alpha-Server-002`, and the pairs are gone when the server stops or is
+restarted. Servers that did not load the plugin answer `UNKNOWN_INSTRUCTION`.
 
 Build the sibling example first if necessary:
 

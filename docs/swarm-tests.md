@@ -2,7 +2,7 @@
 
 ## Overview
 
-The suite has 76 test methods (88 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite has 77 test methods (89 cases with parameterized inputs) in six JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
@@ -14,7 +14,7 @@ The suite has 76 test methods (88 cases with parameterized inputs) in six JUnit 
 
 ## Test inventory
 
-### SwarmManagerTest (19 methods, 45 s timeout; the server-operation tests are listed under "Server operations" below)
+### SwarmManagerTest (20 methods, 45 s timeout; the server-operation tests are listed under "Server operations" below)
 
 | Test | What it verifies |
 | --- | --- |
@@ -48,6 +48,7 @@ The suite has 76 test methods (88 cases with parameterized inputs) in six JUnit 
 | stopsAndRestartsOneServerOnItsSamePortsWithoutTouchingItsPeers | A stopped server stays listed with its ports and shows as not alive while its peers stay alive. Restart brings it back on the same ports. Restarting a running server replaces it. |
 | serverOperationsRejectUnknownServersAndLeaveNeedsGossip | Malformed or unknown server IDs throw `IllegalArgumentException`; `leave` without gossip throws `IllegalStateException`; operations after close fail. |
 | failedRestartKeepsTheServerListedAndReportsWhy | A restart that fails reports the reason, the server stays listed, and a later restart works. |
+| theKeyValuePluginAnswersCommandsToOneServerAndEachServerKeepsItsOwnPairs | With the sibling kv plugin loaded (skipped when it is not built), `command` puts, gets, lists and deletes pairs on one server, including an object value; the other server does not have them; a put without a value and an unknown operation return `INVALID_PARAMETERS`; and a server without the plugin answers `UNKNOWN_INSTRUCTION`. |
 | aCommandToOneServerReturnsTheReplyTheErrorOrWhyThereWasNone | `command` returns OK replies for plain text (sent as echo) and JSON, an ERROR reply with `UNKNOWN_INSTRUCTION` or `INVALID_PARAMETERS` and no failure, the server's `INVALID_REQUEST` for malformed input sent as typed, FAILED with "Connection refused" for a stopped server, and rejects an unknown server, a blank, a two-line and an over-long command. |
 | addingServersNumbersThemAfterTheHighestIdAndTheyAnswer | `addServers` adds servers numbered after the highest ID, all answer, and removing the last server frees its number. |
 | removingAServerUnlistsItAndTheOthersKeepWorkingByTheirIds | A removed server is unlisted, its port is closed, it cannot be restarted or removed again; servers after the gap are still found by ID, new servers continue the numbering, and removing the last server drops the swarm. |
