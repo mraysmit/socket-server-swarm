@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -50,6 +51,13 @@ public final class UiServer implements AutoCloseable {
         });
         server.createContext("/api/swarms", exchange -> handle(exchange, "POST", () -> swarmAction(exchange, manager)));
         server.createContext("/api/stop-all", exchange -> handle(exchange, "POST", () -> stopAll(exchange, manager)));
+        server.createContext("/api/network", exchange -> {
+            if (exchange.getRequestMethod().equals("GET")) {
+                handle(exchange, "GET", () -> reply(exchange, 200, "application/json", Json.write(manager.network().describe())));
+            } else {
+                handle(exchange, "POST", () -> network(exchange, manager.network()));
+            }
+        });
         server.setExecutor(executor);
         server.start();
     }
@@ -174,6 +182,48 @@ public final class UiServer implements AutoCloseable {
         } catch (IOException e) {
             reply(exchange, 500, "application/json", error(e.getMessage()));
         }
+    }
+
+    /**
+     * Changes what the network between the servers does: {@code POST /api/network/partition} with
+     * {@code {"sides":[["a-Server-001"],["a-Server-002","a-Server-003"]]}}, {@code /delay} with {@code servers} and
+     * {@code millis}, {@code /loss} with {@code servers} and {@code percent}, and {@code /heal}. Replies with the rules now
+     * in force.
+     */
+    private void network(HttpExchange exchange, NetworkChaos network) throws IOException {
+        try {
+            var body = body(exchange);
+            switch (exchange.getRequestURI().getPath()) {
+                case "/api/network/partition" -> {
+                    var sides = new java.util.ArrayList<List<String>>();
+                    for (var side : array(body, "sides")) { sides.add(strings(side)); }
+                    network.partition(sides);
+                }
+                case "/api/network/delay" -> network.delay(strings(array(body, "servers")), integer(body, "millis", -1));
+                case "/api/network/loss" -> network.loss(strings(array(body, "servers")), integer(body, "percent", -1));
+                case "/api/network/heal" -> network.heal();
+                default -> { reply(exchange, 404, "application/json", error("Not found")); return; }
+            }
+            reply(exchange, 200, "application/json", Json.write(network.describe()));
+        } catch (IllegalArgumentException e) {
+            reply(exchange, 400, "application/json", error(e.getMessage()));
+        }
+    }
+
+    private static com.fasterxml.jackson.databind.JsonNode array(com.fasterxml.jackson.databind.JsonNode body, String field) {
+        var node = body.get(field);
+        if (node == null || !node.isArray()) { throw new IllegalArgumentException("'" + field + "' must be an array"); }
+        return node;
+    }
+
+    private static List<String> strings(com.fasterxml.jackson.databind.JsonNode array) {
+        if (!array.isArray()) { throw new IllegalArgumentException("Expected an array of server IDs"); }
+        var ids = new java.util.ArrayList<String>();
+        for (var item : array) {
+            if (!item.isTextual()) { throw new IllegalArgumentException("Server IDs must be strings"); }
+            ids.add(item.textValue());
+        }
+        return ids;
     }
 
     private void stopAll(HttpExchange exchange, SwarmManager manager) throws IOException {

@@ -123,6 +123,48 @@ abstract class SwarmScript extends Script {
         }
     }
 
+    // ---- The network between the servers ---------------------------------------------------------------------
+
+    /**
+     * Cuts the swarm into sides that cannot reach one another, in either direction: {@code partition(['a-Server-001'],
+     * ['a-Server-002', 'a-Server-003'])}. Each server still answers scripts and the harness. Replaces an earlier partition.
+     */
+    Map partition(List<String>... sides) {
+        def rules = request('POST', '/api/network/partition', [sides: sides as List]) as Map
+        log "Partitioned ${sides.collect { it.join(', ') }.join('  |  ')}"
+        rules
+    }
+
+    /** Cuts one server off from every other server of its swarm. */
+    Map isolate(String serverId) {
+        String swarmName = serverId.replaceFirst(/-Server-\d+$/, '')
+        partition([serverId], servers(swarmName)*.serverId.findAll { it != serverId } as List<String>)
+    }
+
+    /** Adds {@code millis} to every request to or from each server; 0 removes it. */
+    Map delay(List<String> serverIds, long millis) {
+        def rules = request('POST', '/api/network/delay', [servers: serverIds, millis: millis]) as Map
+        log "Delay ${millis} ms to and from ${serverIds}"
+        rules
+    }
+
+    /** Loses {@code percent} of the requests to or from each server; 0 removes it. */
+    Map loss(List<String> serverIds, int percent) {
+        def rules = request('POST', '/api/network/loss', [servers: serverIds, percent: percent]) as Map
+        log "Loss ${percent}% to and from ${serverIds}"
+        rules
+    }
+
+    /** A healthy network again: no partition, no delay, no loss. */
+    Map heal() {
+        def rules = request('POST', '/api/network/heal', [:]) as Map
+        log 'Healed the network'
+        rules
+    }
+
+    /** The network rules in force. */
+    Map network() { request('GET', '/api/network', null) as Map }
+
     /** Takes a server out of its swarm for good. */
     void remove(String serverId) {
         serverAction(serverId, 'remove', 'Removed')

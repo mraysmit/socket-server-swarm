@@ -133,7 +133,7 @@ svg[data-lod="low"] .arcbg,svg[data-lod="low"] .arc{display:none}
 .pillrow{display:flex;gap:6px;flex-wrap:wrap}
 .pill{font-family:var(--mono);font-size:11px;letter-spacing:.04em;border-radius:4px;padding:2px 7px;border:1px solid currentColor;white-space:nowrap}
 .p-ALIVE,.p-RUNNING,.p-COMPLETED{color:var(--ok)}
-.p-SUSPECT,.p-LEAVING,.p-DISSEMINATING,.p-STARTING,.p-INITIALIZING,.p-STOPPING,.p-EXHAUSTED{color:var(--warn)}
+.p-SUSPECT,.p-LEAVING,.p-DISSEMINATING,.p-STARTING,.p-INITIALIZING,.p-STOPPING,.p-EXHAUSTED,.p-FROZEN{color:var(--warn)}
 .p-DEAD,.p-STOPPED,.p-FAILED,.p-CLEANUP_FAILED{color:var(--bad)}
 .p-LEFT,.p-QUIESCED,.p-NOT_REQUESTED,.p-CANDIDATE,.p-MANUAL,.p-CANCELLED{color:var(--gone)}
 dl.facts{margin:0;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;border-bottom:1px solid var(--line)}
@@ -480,7 +480,7 @@ function mk(swarm,n,delay){
   o.admin=o.main+1;nodes.push(o);return o;
 }
 const state=o=>!o.started?'start':o.left?'left':!o.up?'down':'up';
-const worker=o=>LIVE?(o.gossip?o.workerState:(o.up?'ALIVE':'STOPPED')):
+const worker=o=>LIVE?(o.frozen?'FROZEN':o.gossip?o.workerState:(o.up?'ALIVE':'STOPPED')):
   !o.started?'STARTING':!o.up?'STOPPED':o.left?(T<o.depEnd?'LEAVING':'QUIESCED'):'RUNNING';
 const selfKey=o=>keyOf(o.id,o.boot);
 const selfE=o=>o.view.get(selfKey(o));
@@ -671,8 +671,10 @@ function applySnapshot(snap,first){
       let o=byId(s.serverId);const isNew=!o;
       if(isNew){o=liveNode(s.serverId,sw.name);if(announce)ev('started',`${o.id} appeared on :${s.mainPort}`);}
       const wasUp=o.up;
-      o.main=s.mainPort;o.admin=s.adminPort;o.up=!!s.alive;
-      if(!isNew&&wasUp&&!o.up&&announce)ev('stopped',`${o.id} is no longer answering`);
+      const wasFrozen=!!o.frozen;
+      o.main=s.mainPort;o.admin=s.adminPort;o.up=!!s.alive;o.frozen=!!s.frozen;
+      if(!isNew&&!wasFrozen&&o.frozen&&announce)ev('stopped',`${o.id} is frozen`);
+      else if(!isNew&&wasUp&&!o.up&&announce)ev('stopped',`${o.id} is no longer answering`);
       if(!isNew&&!wasUp&&o.up&&announce)ev('restarted',`${o.id} is answering again`);
       if(s.gossip)applyGossip(o,s.gossip,announce);
       else{o.gossip=false;o.view=new Map();o.truncated=false;}
@@ -879,9 +881,11 @@ function renderPanel(){
     ?`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Admin status</dt><dd>${o.up?'ALIVE':'not answering'}</dd></dl>`
     :`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Boot ID</dt><dd>${o.boot}</dd><dt>Heartbeat</dt><dd>${o.hb}</dd><dt>Rounds</dt><dd>${o.rounds}</dd><dt>Exchanges received</dt><dd>${o.inbound}</dd><dt>Failed outbound</dt><dd>${o.failed}</dd><dt>Isolated</dt><dd>${o.started&&o.isolated?'true':'false'}</dd><dt>Sees live peers</dt><dd>${k?k.c+' of '+k.n:'—'}</dd></dl>`;
   setHTML($('#insp-facts'),facts.replace(/<\/dl>$/,kvFacts(o)+'</dl>'));
-  const canLeave=o.up&&!o.left&&(!LIVE||o.gossip)&&!actionBusy,canStop=o.up&&!actionBusy,canRestart=o.started&&(!o.up||o.left)&&!actionBusy,canRemove=!actionBusy;
+  const canLeave=o.up&&!o.left&&(!LIVE||o.gossip)&&!actionBusy,canStop=(o.up||o.frozen)&&!actionBusy,canRestart=o.started&&(!o.up||o.left)&&!o.frozen&&!actionBusy,canRemove=!actionBusy;
+  const canFreeze=LIVE&&o.up&&!o.frozen&&!actionBusy,canThaw=LIVE&&o.frozen&&!actionBusy;
+  const freezeButtons=LIVE?`<button class="btn" data-act="freeze" data-key="a-freeze" ${canFreeze?'':'disabled'} title="Pause the server as a debugger or a long GC pause would: it keeps its connections but answers and does nothing, so its peers see it fall silent">Freeze</button><button class="btn" data-act="thaw" data-key="a-thaw" ${canThaw?'':'disabled'} title="Let the frozen server carry on where it stopped">Thaw</button>`:'';
   const leaveTip=LIVE&&!o.gossip?'Needs the gossip plugin (start the harness with --gossip)':'Publish a graceful departure to the gossip peers';
-  setHTML($('#insp-actions'),`<div class="actions"><button class="btn" data-act="leave" data-key="a-leave" ${canLeave?'':'disabled'} title="${leaveTip}">Leave gracefully</button><button class="btn danger" data-act="stop" data-key="a-stop" ${canStop?'':'disabled'} title="Close the server without telling its peers">Stop</button><button class="btn" data-act="restart" data-key="a-restart" ${canRestart?'':'disabled'} title="Start again with a new boot ID">Restart</button><button class="btn danger" data-act="remove" data-key="a-remove" ${canRemove?'':'disabled'} title="Take this server out of the swarm for good. With gossip it first announces that it is leaving.">Remove</button></div>${actionNote?`<p class="hint" role="status" style="border:0">${esc(actionNote)}</p>`:''}`);
+  setHTML($('#insp-actions'),`<div class="actions"><button class="btn" data-act="leave" data-key="a-leave" ${canLeave?'':'disabled'} title="${leaveTip}">Leave gracefully</button><button class="btn danger" data-act="stop" data-key="a-stop" ${canStop?'':'disabled'} title="Close the server without telling its peers">Stop</button><button class="btn" data-act="restart" data-key="a-restart" ${canRestart?'':'disabled'} title="Start again with a new boot ID">Restart</button><button class="btn danger" data-act="remove" data-key="a-remove" ${canRemove?'':'disabled'} title="Take this server out of the swarm for good. With gossip it first announces that it is leaving.">Remove</button>${freezeButtons}</div>${actionNote?`<p class="hint" role="status" style="border:0">${esc(actionNote)}</p>`:''}`);
   const rows=[...o.view.values()].sort((a,b)=>a.id.localeCompare(b.id)||a.boot.localeCompare(b.boot));
   const empty=noGossip?'The gossip plugin is not loaded on this server, or it is not answering.':'No members known yet';
   const more=o.truncated?'<p class="hint" style="border:0">Showing the first page of members only.</p>':'';
@@ -936,7 +940,7 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
   const a=b.dataset.act;
   if(a==='select')select(b.dataset.id,true);
-  else if(LIVE&&sel&&(a==='leave'||a==='stop'||a==='restart'||a==='remove'))runAction(a,sel);
+  else if(LIVE&&sel&&(a==='leave'||a==='stop'||a==='restart'||a==='remove'||a==='freeze'||a==='thaw'))runAction(a,sel);
   else if(a==='leave'&&sel){leave(sel);renderAll();}
   else if(a==='stop'&&sel){stop(sel);renderAll();}
   else if(a==='restart'&&sel){restart(sel);renderAll();}
@@ -945,7 +949,7 @@ document.addEventListener('click',e=>{
 /* live mode: ask the harness to act on one server, then refresh at once instead of waiting for the next poll */
 async function runAction(act,o){
   if(actionBusy)return;
-  actionBusy=true;actionNote={leave:'Leaving',stop:'Stopping',restart:'Restarting',remove:'Removing'}[act]+' '+o.id+'…';renderAll();
+  actionBusy=true;actionNote={leave:'Leaving',stop:'Stopping',restart:'Restarting',remove:'Removing',freeze:'Freezing',thaw:'Thawing'}[act]+' '+o.id+'…';renderAll();
   try{
     const r=await fetch('/api/servers/'+encodeURIComponent(o.id)+'/'+act,{method:'POST',headers:{'X-Swarm-UI':'1'},cache:'no-store'});
     const j=await r.json().catch(()=>({}));
@@ -1152,7 +1156,7 @@ const INFO={
   newswarm:()=>'<p><b>New swarm</b> Adds another simulated swarm. To start real servers, open the page from the harness (http://localhost:8088/) and use <b>Start a swarm</b>.</p>',
   addserver:()=>'<p><b>Add server</b> Adds one more simulated server to the selected swarm.</p>',
   canvas:()=>'<p><b>Zoom</b> Mouse wheel, the − and + buttons or the − and + keys. Double-click empty canvas to zoom in there.</p><p><b>Pan</b> Drag empty canvas.</p><p><b>Fit</b> Frames every server (key 0). Until you move the view yourself, it refits as servers come and go.</p><p><b>Focus</b> Hides the side panels so the canvas fills the window (key F). Press again to bring them back.</p>',
-  actions:()=>'<p><b>Leave gracefully</b> Tells the gossip peers this server is leaving, so they rate it LEFT quickly. It keeps running. Needs gossip.</p><p><b>Stop</b> Closes the server without telling anyone, so its peers rate it SUSPECT and then DEAD. It stays listed.</p><p><b>Restart</b> Starts a stopped server again on the same ports, with a new boot ID.</p><p><b>Remove</b> Takes the server out of the swarm for good. With gossip it announces its departure first. It cannot be restarted.</p>',
+  actions:()=>'<p><b>Leave gracefully</b> Tells the gossip peers this server is leaving, so they rate it LEFT quickly. It keeps running. Needs gossip.</p><p><b>Stop</b> Closes the server without telling anyone, so its peers rate it SUSPECT and then DEAD. It stays listed.</p><p><b>Restart</b> Starts a stopped server again on the same ports, with a new boot ID.</p><p><b>Remove</b> Takes the server out of the swarm for good. With gossip it announces its departure first. It cannot be restarted.</p><p><b>Freeze</b> Pauses the server as a debugger or a long GC pause would: it keeps its connections but answers and does nothing, so its peers rate it SUSPECT and then DEAD. <b>Thaw</b> lets it carry on where it stopped. Live swarms only.</p>',
   server:()=>'<p><b>Server</b> Everything about the selected server. The two tags under its ID say whether it is running and whether it has been asked to leave. <b>Main / admin</b> are its two ports.</p><p>With gossip: <b>Boot ID</b> identifies this run of the server (a restart gets a new one), <b>Heartbeat</b> is its own beat count, <b>Rounds</b> the gossip rounds it has run, <b>Exchanges received</b> and <b>Failed outbound</b> its gossip traffic, <b>Isolated</b> whether it has no peers, and <b>Sees live peers</b> how many members it rates ALIVE.</p><p>The table lists every member this server knows and how <b>this server</b> rates it (ALIVE, SUSPECT, DEAD, LEFT), with its heartbeat and seconds since news.</p>',
   activity:()=>'<p><b>Socket activity</b> Every request the selected server receives, one row each, read from its log. In the Conn column, #1234·15 is the 15th request on connection 1234. The numbers above the list count everything since the server started.</p><p><b>Pause feed</b> freezes the list so you can read it, and Resume catches up. Untick <b>Show gossip</b> to hide the constant gossip traffic.</p>'+PANEL_TIP,
   command:()=>'<p><b>Command</b> Sends one command to the chosen server and shows exactly what came back. Plain text is sent as an echo; JSON is sent as a request. <b>Try</b> fills in an example request (echo, the gossip operations, the key-value operations, or an unknown instruction), the up and down arrows recall earlier commands, and <b>Clear</b> empties the history.</p><p><b>gossip</b> and <b>kv</b> commands only work on servers that loaded those plugins; otherwise the server answers UNKNOWN_INSTRUCTION. <b>kv</b> keeps its pairs in each server\u2019s own memory: a key put on one server is not on the others, and it is gone when the server stops.</p>'+PANEL_TIP,

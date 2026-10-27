@@ -40,6 +40,7 @@ public final class SwarmManager implements AutoCloseable {
     private KvConfigFile kvFile;
     private GossipConfigFile gossipFile;
     private final ConnectionPool connections = new ConnectionPool();
+    private final NetworkChaos network = new NetworkChaos(this::list);
     private volatile boolean closed;
 
     public SwarmManager() { this(List.of()); }
@@ -66,6 +67,9 @@ public final class SwarmManager implements AutoCloseable {
     }
 
     public boolean gossipEnabled() { return gossip != null; }
+
+    /** The network between this harness's servers: partitions, delay and loss, for chaos experiments. */
+    NetworkChaos network() { return network; }
 
     public synchronized List<ServerEndpoint> start(String name, int count) throws IOException {
         ensureOpen();
@@ -436,6 +440,7 @@ public final class SwarmManager implements AutoCloseable {
             closed = true;
             try { stopAll(); }
             finally {
+                network.heal();
                 connections.close();
                 if (gossipFile != null) { gossipFile.close(); }
                 if (kvFile != null) { kvFile.close(); }

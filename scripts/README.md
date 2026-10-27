@@ -43,6 +43,8 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | `kill id`, `restart id` | Stop a server without telling its peers, as a crash would; start it again on the same ports. |
 | `remove id`, `leave id` | Take a server away gracefully; publish a gossip departure but keep it running. |
 | `freeze id`, `thaw id`, `frozenFor id, ms { ... }` | Pause a server as a debugger or long GC pause would: it keeps its connections but does nothing. |
+| `partition sideA, sideB, ...`, `isolate id` | Cut servers off from one another, both ways; each still answers scripts and the harness. |
+| `delay ids, ms`, `loss ids, percent`, `heal()`, `network()` | Slow down or lose requests to and from servers; undo every network rule; see the rules in force. |
 | `put id, key, value`, `get id, key`, `delete id, key`, `keys id`, `kvStatus id` | Key-value data on one server. |
 | `call id, instruction, parameters` | Any instruction on one server. |
 | `load name, requests, concurrency` | A verified echo load test across the swarm. |
@@ -64,5 +66,11 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | [chaos/rolling-restart.groovy](chaos/rolling-restart.groovy) | Restarting every server in turn, as a deployment would, loses nothing. |
 | [chaos/churn.groovy](chaos/churn.groovy) | Servers join and go continuously while clients write. |
 | [chaos/freeze.groovy](chaos/freeze.groovy) | A server frozen past the suspect and then the dead timeout is noticed, and recovers when thawed. |
+| [chaos/partition.groovy](chaos/partition.groovy) | Split in two, each side sees only itself and keeps its writes; healed, it converges and a key written on both sides holds the later write. |
+| [chaos/slow-network.groovy](chaos/slow-network.groovy) | Delay everywhere and heavy loss at one server: writes are still taken and the swarm still converges. |
+
+Network faults apply to the requests servers make of one another (gossip exchanges, key-value pushes and comparisons),
+which all go through the host's kept-open client. The harness decides each one from the rules in force; a lost request
+times out at its sender, as behind a real partition. Requests from scripts, the page and the harness are never faulted.
 
 The waits in the chaos scripts suit the harness's `--gossip-fast` timings.
