@@ -23,7 +23,7 @@ public final class UiServer implements AutoCloseable {
 
     /** Header a page must send with every action; cross-site requests cannot add it without a preflight, which is refused. */
     public static final String ACTION_HEADER = "X-Swarm-UI";
-    private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart|remove)");
+    private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart|remove|freeze|thaw)");
 
     private static final Pattern COMMAND_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/command");
     private static final Pattern MEMBERS_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/members");
@@ -104,6 +104,8 @@ public final class UiServer implements AutoCloseable {
             switch (what) {
                 case "stop" -> manager.stopServer(serverId);
                 case "leave" -> manager.leaveServer(serverId);
+                case "freeze" -> manager.freezeServer(serverId);
+                case "thaw" -> manager.thawServer(serverId);
                 case "remove" -> {
                     manager.removeServer(serverId);
                     if (activity != null) { activity.forget(serverId); }

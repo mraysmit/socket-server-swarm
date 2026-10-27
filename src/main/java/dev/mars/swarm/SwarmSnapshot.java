@@ -111,6 +111,13 @@ final class SwarmSnapshot {
     }
 
     private static Map<String, Object> probe(SwarmManager manager, ServerEndpoint endpoint, boolean withMembers) {
+        if (manager.frozen(endpoint.serverId())) {
+            // Asking a frozen server would only wait out a timeout; it is known to be silent.
+            var frozen = server(endpoint, false, "Frozen", null);
+            frozen.put("frozen", true);
+            frozen.put("kv", null);
+            return frozen;
+        }
         var server = probeServer(manager, endpoint, withMembers);
         server.put("kv", Boolean.TRUE.equals(server.get("alive")) ? kv(manager, endpoint) : null);
         return server;

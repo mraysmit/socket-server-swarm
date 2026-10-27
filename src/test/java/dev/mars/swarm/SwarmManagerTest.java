@@ -24,6 +24,23 @@ import static org.junit.jupiter.api.Assertions.*;
 @Timeout(45)
 class SwarmManagerTest {
     @Test
+    @SuppressWarnings("unchecked")
+    void aFrozenServerIsShownFrozenAndAnswersAgainOnceThawed() throws Exception {
+        try (var manager = new SwarmManager()) {
+            manager.start("ice", 2);
+            manager.freezeServer("ice-Server-001");
+            var servers = (List<Map<String, Object>>) ((List<Map<String, Object>>) SwarmSnapshot.take(manager).get("swarms")).getFirst().get("servers");
+            assertEquals(Boolean.TRUE, servers.get(0).get("frozen"));
+            assertEquals(Boolean.FALSE, servers.get(0).get("alive"));
+            assertEquals("Frozen", servers.get(0).get("detail"));
+            assertNull(servers.get(1).get("frozen"), "Only the frozen server says so");
+            manager.thawServer("ice-Server-001");
+            assertEquals("OK", manager.send("ice", "after the thaw").getFirst().status());
+            assertThrows(IllegalArgumentException.class, () -> manager.freezeServer("ice-Server-009"));
+        }
+    }
+
+    @Test
     void countsMixedHealthyAndUnreachableTargetsWithoutStoppingHealthyServers() throws Exception {
         var opened = new ConcurrentLinkedQueue<ServerInstance>();
         try (var manager = new SwarmManager(List.of(), options -> {

@@ -259,6 +259,33 @@ public final class SwarmManager implements AutoCloseable {
         catch (RuntimeException e) { throw new IOException("Cannot stop " + serverId, e); }
     }
 
+    /**
+     * Freezes one server, as a debugger or a long pause would: it keeps its connections and state but accepts, answers
+     * and does nothing, and its gossip and key-value plugins pause, so its peers see it fall silent. Thaw, stop or
+     * restart ends it.
+     */
+    public synchronized void freezeServer(String serverId) {
+        ensureOpen();
+        var at = locate(serverId);
+        at.servers().get(at.position()).freeze();
+    }
+
+    public synchronized void thawServer(String serverId) {
+        ensureOpen();
+        var at = locate(serverId);
+        at.servers().get(at.position()).thaw();
+    }
+
+    /** Whether the server is frozen; one the harness does not know is not. */
+    synchronized boolean frozen(String serverId) {
+        try {
+            var at = locate(serverId);
+            return at.servers().get(at.position()).frozen();
+        } catch (IllegalArgumentException unknown) {
+            return false;
+        }
+    }
+
     /** Starts the server again on the same ports with the same ID; a gossip server comes back with a new boot ID. */
     public synchronized ServerEndpoint restartServer(String serverId) throws IOException {
         ensureOpen();
