@@ -18,7 +18,7 @@ def steady = { awaitAlive(name, size) && awaitInSync(name) && written.every { ke
         method: {
             frozenFor(victim, pause.seconds * 1000) {
                 String writer = alive(name).find { it != victim }
-                String key = "frozen-${victim}-${pause.seconds}"
+                String key = this.key("frozen-${victim}-${pause.seconds}")
                 put writer, key, "written while ${victim} was frozen"
                 written[key] = "written while ${victim} was frozen"
                 // The others must notice the silence: the frozen server is no longer rated ALIVE by any of them.

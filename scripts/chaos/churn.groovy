@@ -15,7 +15,7 @@ experiment "${cycles} cycles of servers joining and going", [
         cycles.times { cycle ->
             joined += add(name, 1)
             awaitAlive name, size + 1
-            String key = "churn-${cycle}"
+            String key = this.key("churn-${cycle}")
             put randomServer(name), key, "cycle ${cycle}"
             written[key] = "cycle ${cycle}"
             String going = joined.first()

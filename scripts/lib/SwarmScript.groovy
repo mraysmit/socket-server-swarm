@@ -29,6 +29,8 @@ abstract class SwarmScript extends Script {
     private final Map<String, Integer> ports = [:]
     private final Map<Integer, ServerLink> links = [:]
     private final Random random = new Random()
+    /** Different on every run, so the keys one run writes are never mistaken for those an earlier run left behind. */
+    final String runId = Long.toString(System.currentTimeMillis(), 36)
     private int checks
     private int failures
 
@@ -208,6 +210,9 @@ abstract class SwarmScript extends Script {
     }
 
     Object kv(String serverId, Map parameters) { call(serverId, 'kv', parameters) }
+
+    /** A key for this run only: {@code key('split')} is {@code split-<runId>}. The store keeps keys across runs. */
+    String key(String name) { "${name}-${runId}" }
 
     void put(String serverId, String key, Object value) { kv(serverId, [operation: 'put', key: key, value: value]) }
 

@@ -8,10 +8,10 @@ String victim = randomServer(name)
 kill victim
 
 String writer = alive(name).first()
-put writer, 'while-down', "written on ${writer} while ${victim} was down"
+put writer, key('while-down'), "written on ${writer} while ${victim} was down"
 awaitInSync name
 
 restart victim
 awaitAlive name, size
 awaitInSync name
-check get(victim, 'while-down') == "written on ${writer} while ${victim} was down", "${victim} has the write it missed"
+check get(victim, key('while-down')) == "written on ${writer} while ${victim} was down", "${victim} has the write it missed"

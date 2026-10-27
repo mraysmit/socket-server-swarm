@@ -21,19 +21,19 @@ experiment "a split into ${minority.size()} and ${majority.size()} servers heals
         check waitFor('each side sees only itself', 30_000) { sees(minority) && sees(majority) },
                 "${minority} and ${majority} each rate only their own side ALIVE"
 
-        put minority[0], 'split-minority', 'written on the minority side'
-        put majority[0], 'split-majority', 'written on the majority side'
-        written['split-minority'] = 'written on the minority side'
-        written['split-majority'] = 'written on the majority side'
+        put minority[0], key('split-minority'), 'written on the minority side'
+        put majority[0], key('split-majority'), 'written on the majority side'
+        written[key('split-minority')] = 'written on the minority side'
+        written[key('split-majority')] = 'written on the majority side'
         pause 3_000   // several push and sync rounds
-        check get(majority.last(), 'split-minority') == null, 'the majority does not see the minority write while split'
-        check get(minority.last(), 'split-majority') == null, 'the minority does not see the majority write while split'
+        check get(majority.last(), key('split-minority')) == null, 'the majority does not see the minority write while split'
+        check get(minority.last(), key('split-majority')) == null, 'the minority does not see the majority write while split'
 
         // The same key on both sides: the later write must win everywhere once the sides meet again.
-        put minority[0], 'split-both', 'the earlier write, on the minority'
+        put minority[0], key('split-both'), 'the earlier write, on the minority'
         pause 50
-        put majority[0], 'split-both', 'the later write, on the majority'
-        written['split-both'] = 'the later write, on the majority'
+        put majority[0], key('split-both'), 'the later write, on the majority'
+        written[key('split-both')] = 'the later write, on the majority'
 
         heal()
     },

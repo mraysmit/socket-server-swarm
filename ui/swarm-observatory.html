@@ -15,18 +15,18 @@
 :root{
   --bg:#eaeef2; --panel:#fafbfc; --ink:#14202b; --mute:#566676; --line:#d0d8df; --soft:#e2e8ee;
   --accent:#2456d6; --accent-ink:#ffffff;
-  --ok:#0f7a50; --warn:#a35a00; --bad:#c0302c; --gone:#6f7e8c;
+  --ok:#0f7a50; --warn:#a35a00; --bad:#c0302c; --gone:#6f7e8c; --ice:#1f7fc4; --ice-soft:#e1f0fb; --cut:#7a3fcf;
   --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
   --accent:#7aa2ff; --accent-ink:#0c151e;
-  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; color-scheme:dark;}}
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; color-scheme:dark;}}
 :root[data-theme="dark"]{
   --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
   --accent:#7aa2ff; --accent-ink:#0c151e;
-  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; color-scheme:dark;}
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; color-scheme:dark;}
 
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;
@@ -108,6 +108,31 @@ svg[data-lod="low"] .arcbg,svg[data-lod="low"] .arc{display:none}
 .node.st-left .body{stroke:var(--gone);stroke-dasharray:2 5;stroke-linecap:round}
 .node.st-start .body{stroke:var(--line);stroke-dasharray:1 5;stroke-linecap:round}
 .node.st-down .nid,.node.st-left .nid,.node.st-start .nid{fill:var(--mute)}
+/* the server's status, finer than up or down: each has its own outline, a corner glyph and a label under its number */
+.node.s-starting .body{stroke:var(--line);stroke-dasharray:1 5;stroke-linecap:round;animation:sv-spin 2.4s linear infinite}
+.node.s-frozen .body{stroke:var(--ice);fill:var(--ice-soft);stroke-dasharray:none}
+.node.s-frozen .nid{fill:var(--ice)}
+.node.s-suspect .body{stroke:var(--warn);stroke-dasharray:none;animation:sv-throb 1.4s ease-in-out infinite}
+.node.s-recovering .body{stroke:var(--ok);stroke-dasharray:9 5;animation:sv-spin 1.2s linear infinite}
+.node.s-partitioned .body{stroke:var(--cut);stroke-dasharray:16 5}
+.node.s-degraded .body{stroke:var(--warn);stroke-dasharray:3 3}
+@keyframes sv-spin{to{stroke-dashoffset:-28}}
+@keyframes sv-throb{50%{stroke-opacity:.3}}
+@media (prefers-reduced-motion:reduce){.node .body{animation:none!important}}
+.sglyph{font-size:13px;text-anchor:middle;dominant-baseline:central}
+.sg-frozen{fill:var(--ice)} .sg-stopped{fill:var(--bad)} .sg-left{fill:var(--gone)} .sg-starting{fill:var(--mute)}
+.sg-suspect,.sg-degraded{fill:var(--warn)} .sg-recovering{fill:var(--ok)} .sg-partitioned{fill:var(--cut)}
+.slab{font-family:var(--mono);font-size:7.5px;letter-spacing:.04em;text-anchor:middle;fill:var(--mute);text-transform:uppercase}
+.node.s-frozen .slab{fill:var(--ice)} .node.s-partitioned .slab{fill:var(--cut)} .node.s-suspect .slab,.node.s-degraded .slab{fill:var(--warn)}
+/* one tiny tag per command plugin the server loaded */
+.plug rect{fill:var(--panel);stroke:var(--line);stroke-width:1}
+.plug text{font-family:var(--mono);font-size:7.5px;font-weight:600;text-anchor:middle;dominant-baseline:central;fill:var(--mute)}
+.plug.pl-GS rect{stroke:var(--accent)} .plug.pl-GS text{fill:var(--accent)}
+.plug.pl-KV rect{stroke:var(--ok)} .plug.pl-KV text{fill:var(--ok)}
+svg[data-lod="mid"] .slab,svg[data-lod="low"] .slab,svg[data-lod="low"] .plug,svg[data-lod="low"] .sglyph{display:none}
+.chip.s-frozen .dot{border-color:var(--ice);background:var(--ice-soft)} .chip.s-partitioned .dot{border-color:var(--cut)}
+.chip.s-suspect .dot,.chip.s-degraded .dot{border-color:var(--warn)} .chip.s-recovering .dot{border-color:var(--ok);border-style:dashed}
+.p-FROZEN{color:var(--ice)} .p-PARTITIONED{color:var(--cut)} .p-RECOVERING{color:var(--ok)} .p-DEGRADED{color:var(--warn)}
 .nid{font-family:var(--mono);font-size:14px;font-weight:500;fill:var(--ink);text-anchor:middle}
 .arcbg{fill:none;stroke:var(--soft);stroke-width:max(4px,calc(2px / var(--k,1)))}
 .arc{fill:none;stroke:var(--accent);stroke-width:max(4px,calc(2px / var(--k,1)));stroke-linecap:butt}
@@ -381,7 +406,14 @@ body{margin:0}
         <div class="legend-items">
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--ok)" stroke-width="3"/></svg>Running</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--bad)" stroke-width="3" stroke-dasharray="4 3"/></svg>Stopped</span>
-        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--gone)" stroke-width="3" stroke-dasharray="1.5 4" stroke-linecap="round"/></svg>Left</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--gone)" stroke-width="3" stroke-dasharray="1.5 4" stroke-linecap="round"/></svg>Left ↗ (departed from gossip, still running)</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--line)" stroke-width="3" stroke-dasharray="1 3" stroke-linecap="round"/></svg>Starting …</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="var(--ice-soft)" stroke="var(--ice)" stroke-width="3"/></svg>Frozen ❄ (silent, keeps its connections)</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--warn)" stroke-width="3"/></svg>Suspect ? (up, but its peers doubt it)</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--ok)" stroke-width="3" stroke-dasharray="6 3"/></svg>Recovering ↻ (catching up)</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--cut)" stroke-width="3" stroke-dasharray="9 3"/></svg>Partitioned ✂ (cut off by a network rule)</span>
+        <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--warn)" stroke-width="3" stroke-dasharray="2 2"/></svg>Degraded ≈ (slow or lossy link)</span>
+        <span><svg viewBox="0 0 18 18"><rect x="1" y="4" width="16" height="10" rx="3" fill="none" stroke="var(--accent)"/><text x="9" y="11.5" font-size="7" text-anchor="middle" fill="var(--accent)" font-family="monospace" font-weight="600">GS</text></svg>Plugins: GS gossip, KV key-value, MU multiply</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="30 44" transform="rotate(-90 9 9)"/></svg>Share of live peers this server sees</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="5" fill="var(--warn)"/></svg>Badge: how the selected server rates it</span>
         <span class="simonly"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--accent)"/></svg>Exchange in flight</span>
@@ -482,6 +514,65 @@ function mk(swarm,n,delay){
 const state=o=>!o.started?'start':o.left?'left':!o.up?'down':'up';
 const worker=o=>LIVE?(o.frozen?'FROZEN':o.gossip?o.workerState:(o.up?'ALIVE':'STOPPED')):
   !o.started?'STARTING':!o.up?'STOPPED':o.left?(T<o.depEnd?'LEAVING':'QUIESCED'):'RUNNING';
+/* The network rules in force in the live harness: which servers are cut off, slowed, or losing traffic. */
+let netRules=null;
+/* A server's status, finer than up or down. The first that applies wins: starting, frozen, stopped, left, cut off by a
+   partition, suspected by most of its peers although it is up, still catching up, on a slow or lossy link, running. */
+function status(o){
+  if(!o.started||(LIVE&&o.up&&o.gossip&&o.workerState==='INITIALIZING'))return 'starting';
+  if(o.frozen)return 'frozen';
+  if(!o.up)return 'stopped';
+  if(o.left)return 'left';
+  if(netRules&&(netRules.partition||[]).some(side=>side.includes(o.id)))return 'partitioned';
+  const peers=nodes.filter(m=>m!==o&&m.swarm===o.swarm&&m.started&&m.up&&!m.left&&!m.frozen&&(!LIVE||m.gossip));
+  let doubting=0;
+  for(const p of peers){const e=entryFor(p.view,o);if(e&&(assess(e)==='SUSPECT'||assess(e)==='DEAD'))doubting++;}
+  if(peers.length&&doubting*2>peers.length)return 'suspect';
+  /* Catching up: lately back (started, restarted or thawed) and not yet seeing every live peer; or holding other pairs
+     than most of its swarm for two snapshots running, which a write still on its way does not. */
+  const k=know(o),kv=kvBy[o.swarm];
+  const lately=o.cameUpAt!==undefined&&T-o.cameUpAt<20000;
+  if((lately&&k&&k.c<k.n)||(LIVE&&o.kv&&kv&&kvBad[o.swarm]>=2&&o.kv.root&&kv.root&&o.kv.root!==kv.root))return 'recovering';
+  if(netRules&&(o.id in (netRules.delayMillis||{})||o.id in (netRules.lossPercent||{})))return 'degraded';
+  return 'running';
+}
+const STATUS_GLYPH={starting:'…',frozen:'❄',stopped:'✕',left:'↗',partitioned:'✂',suspect:'?',recovering:'↻',degraded:'≈',running:''};
+const STATUS_TIP={
+  starting:'starting: not yet running gossip rounds',
+  frozen:'frozen: keeps its connections but answers and does nothing',
+  stopped:'stopped: not answering',
+  left:'left: departed from gossip, still running',
+  partitioned:'partitioned: a network rule cuts it off from part of the swarm',
+  suspect:'suspect: most of its peers rate it SUSPECT or DEAD although it is up',
+  recovering:'recovering: up, but still catching up with its peers or their key-value pairs',
+  degraded:'degraded: its link is slowed or loses requests',
+  running:'running'};
+/* the network rules in a few words, or '' for a healthy network */
+function netDesc(r){
+  if(!r)return '';
+  const parts=[];
+  if((r.partition||[]).length)parts.push('split into '+r.partition.map(s=>s.length).join(' and ')+' servers');
+  const slow=Object.keys(r.delayMillis||{}).length,lossy=Object.keys(r.lossPercent||{}).length;
+  if(slow)parts.push(slow+' server'+(slow===1?'':'s')+' slowed');
+  if(lossy)parts.push(lossy+' losing requests');
+  return parts.join(', ');
+}
+/* why a degraded server is degraded, for its tooltip */
+function netNote(o){
+  if(!netRules)return '';
+  const d=(netRules.delayMillis||{})[o.id],l=(netRules.lossPercent||{})[o.id];
+  return [d?d+' ms delay':'',l?l+'% loss':''].filter(Boolean).join(', ');
+}
+/* one short code per command plugin: GS gossip, KV key-value, MU multiply, EX exec; echo is built into every server */
+const PLUGIN_CODE={gossip:'GS',kv:'KV',multiply:'MU',exec:'EX'};
+const plugins=o=>(o.plugins||[]).filter(p=>p!=='echo');
+const pluginCode=p=>PLUGIN_CODE[p]||p.slice(0,2).toUpperCase();
+function pluginTags(o){
+  const ps=plugins(o);if(!ps.length)return '';
+  const w=17,gap=3,x0=-((ps.length*w+(ps.length-1)*gap)/2);
+  return ps.map((p,i)=>{const c=pluginCode(p),x=x0+i*(w+gap);
+    return `<g class="plug pl-${c}"><rect x="${x.toFixed(1)}" y="40" width="${w}" height="11" rx="3"/><text x="${(x+w/2).toFixed(1)}" y="45.5">${esc(c)}</text></g>`;}).join('');
+}
 const selfKey=o=>keyOf(o.id,o.boot);
 const selfE=o=>o.view.get(selfKey(o));
 function putSelf(o){o.view.set(selfKey(o),{id:o.id,boot:o.boot,hb:o.hb,adv:T,left:false,as:'ALIVE'});}
@@ -664,6 +755,8 @@ function setView(o,self,members){
 }
 function applySnapshot(snap,first){
   const announce=!first,present=new Set(),names=new Set();
+  const netWas=JSON.stringify(netRules);netRules=snap.network||null;
+  if(announce&&JSON.stringify(netRules)!==netWas){const d=netDesc(netRules);ev(d?'suspect':'converged',d?'network: '+d:'network healed');}
   for(const sw of snap.swarms){
     names.add(sw.name);
     for(const s of sw.servers){
@@ -675,10 +768,12 @@ function applySnapshot(snap,first){
       o.main=s.mainPort;o.admin=s.adminPort;o.up=!!s.alive;o.frozen=!!s.frozen;
       if(!isNew&&!wasFrozen&&o.frozen&&announce)ev('stopped',`${o.id} is frozen`);
       else if(!isNew&&wasUp&&!o.up&&announce)ev('stopped',`${o.id} is no longer answering`);
-      if(!isNew&&!wasUp&&o.up&&announce)ev('restarted',`${o.id} is answering again`);
+      if(!isNew&&!wasUp&&o.up&&announce)ev('restarted',`${o.id} is answering again${wasFrozen?' (thawed)':''}`);
+      if(o.up&&(isNew||!wasUp))o.cameUpAt=T;
       if(s.gossip)applyGossip(o,s.gossip,announce);
       else{o.gossip=false;o.view=new Map();o.truncated=false;}
       o.kv=s.kv||null;
+      o.plugins=s.plugins||[];
     }
     const kvNow=sw.kvSync||null,kvWas=kvBy[sw.name]||null;kvBy[sw.name]=kvNow;
     if(kvNow){
@@ -811,18 +906,21 @@ function renderGraph(){
       if(e)under+=`<line class="eye ${assess(e)}" x1="${sel.x}" y1="${sel.y}" x2="${o.x}" y2="${o.y}"/>`;}
   }
   for(const o of nodes){
-    const st=state(o),k=know(o),f=k?Math.min(1,k.c/k.n):0;
+    const st=state(o),k=know(o),f=k?Math.min(1,k.c/k.n):0,ss=status(o);
     let badge='';
     if(sel&&sel!==o&&sel.started&&sel.up){const e=entryFor(sel.view,o);badge=`<circle class="badge b-${e?assess(e):'NONE'}" cx="22" cy="-22" r="7"/>`;}
-    const stName={up:'running',down:'stopped',left:'left',start:'starting'}[st];
-    top+=`<g class="node st-${st}${sel===o?' sel':''}" data-id="${o.id}" data-key="n-${o.id}" tabindex="0" role="button" aria-label="${o.id}, ${stName}${k?', sees '+k.c+' of '+k.n+' live servers':''}" transform="translate(${o.x.toFixed(1)} ${o.y.toFixed(1)})">
-      <title>${o.id} · ${stName}</title>
+    const note=ss==='degraded'?netNote(o):'',ps=plugins(o);
+    const tip=`${o.id} · ${STATUS_TIP[ss]}${note?' ('+note+')':''}${ps.length?' · plugins: '+ps.join(', '):''}`;
+    const glyph=STATUS_GLYPH[ss]?`<text class="sglyph sg-${ss}" x="-23" y="-22">${STATUS_GLYPH[ss]}</text>`:'';
+    const label=ss==='running'?'':`<text class="slab" y="17">${ss}</text>`;
+    top+=`<g class="node st-${st} s-${ss}${sel===o?' sel':''}" data-id="${o.id}" data-key="n-${o.id}" tabindex="0" role="button" aria-label="${o.id}, ${ss}${note?', '+note:''}${k?', sees '+k.c+' of '+k.n+' live servers':''}${ps.length?', plugins '+ps.join(' '):''}" transform="translate(${o.x.toFixed(1)} ${o.y.toFixed(1)})">
+      <title>${esc(tip)}</title>
       <circle class="selring" r="42"/>
       <circle class="arcbg" r="33"/>
       <circle class="arc" r="33" stroke-dasharray="${(f*C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90)"/>
       <circle class="body" r="26"/>
-      <text class="nid" y="5">${pad(o.n)}</text>${badge}
-      ${partition?`<text class="grp" y="56">${o.group?'B':'A'}</text>`:''}</g>`;
+      <text class="nid" y="${label?2:5}">${pad(o.n)}</text>${label}${glyph}${badge}${pluginTags(o)}
+      ${partition?`<text class="grp" y="${ps.length?64:56}">${o.group?'B':'A'}</text>`:''}</g>`;
   }
   setHTML($('#g-under'),under);setHTML($('#g-nodes'),top);
 }
@@ -842,7 +940,7 @@ function renderSwarms(){
   const html=swarms().map(s=>`<section class="swarm"><div class="hd"><h3>${esc(s)}</h3><span class="conv" data-conv="${s}"></span></div>
     <div class="meter"><i data-bar="${s}"></i></div>
     <div class="kvline" data-kv="${s}" hidden></div>
-    <ul class="chips">${nodes.filter(n=>n.swarm===s).map(n=>`<li><button class="chip st-${state(n)}${sel===n?' on':''}" data-act="select" data-id="${n.id}" data-key="c-${n.id}" aria-pressed="${sel===n}" title="${n.id}"><span class="dot"></span>${pad(n.n)}</button></li>`).join('')}</ul></section>`).join('');
+    <ul class="chips">${nodes.filter(n=>n.swarm===s).map(n=>`<li><button class="chip st-${state(n)} s-${status(n)}${sel===n?' on':''}" data-act="select" data-id="${n.id}" data-key="c-${n.id}" aria-pressed="${sel===n}" title="${n.id} · ${status(n)}"><span class="dot"></span>${pad(n.n)}</button></li>`).join('')}</ul></section>`).join('');
   setHTML($('#swarms'),html||(LIVE?'<p class="hint" style="border:0">No swarms yet. Enter a name and a number of servers above, then press Start.</p>':''));
   for(const s of swarms()){const c=conv(s),v=c===null?0:Math.round(c*100);
     const a=$(`[data-conv="${s}"]`),b=$(`[data-bar="${s}"]`);
@@ -874,13 +972,16 @@ function renderPanel(){
     setHTML($('#insp-facts'),'');setHTML($('#insp-actions'),'');setHTML($('#insp-table'),'');
     return;
   }
-  setHTML($('#insp-head'),`<div class="insp-head"><div class="id">${o.id}</div><div class="pillrow">${pill(worker(o))}${pill(o.dep)}</div></div>`);
+  const ss=status(o);
+  setHTML($('#insp-head'),`<div class="insp-head"><div class="id">${o.id}</div><div class="pillrow">${pill(worker(o))}${ss!=='running'&&ss.toUpperCase()!==worker(o)?pill(ss.toUpperCase()):''}${pill(o.dep)}</div></div>`);
   const k=know(o);
   const noGossip=LIVE&&!o.gossip;
   const facts=noGossip
     ?`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Admin status</dt><dd>${o.up?'ALIVE':'not answering'}</dd></dl>`
     :`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Boot ID</dt><dd>${o.boot}</dd><dt>Heartbeat</dt><dd>${o.hb}</dd><dt>Rounds</dt><dd>${o.rounds}</dd><dt>Exchanges received</dt><dd>${o.inbound}</dd><dt>Failed outbound</dt><dd>${o.failed}</dd><dt>Isolated</dt><dd>${o.started&&o.isolated?'true':'false'}</dd><dt>Sees live peers</dt><dd>${k?k.c+' of '+k.n:'—'}</dd></dl>`;
-  setHTML($('#insp-facts'),facts.replace(/<\/dl>$/,kvFacts(o)+'</dl>'));
+  const pluginFacts=LIVE?`<dt>Plugins</dt><dd>${plugins(o).length?plugins(o).map(p=>esc(pluginCode(p))+' '+esc(p)).join(', '):'none besides echo'}</dd>`:'';
+  const netFacts=netNote(o)?`<dt>Network</dt><dd>${esc(netNote(o))}</dd>`:ss==='partitioned'?`<dt>Network</dt><dd>cut off by a partition</dd>`:'';
+  setHTML($('#insp-facts'),facts.replace(/<\/dl>$/,pluginFacts+netFacts+kvFacts(o)+'</dl>'));
   const canLeave=o.up&&!o.left&&(!LIVE||o.gossip)&&!actionBusy,canStop=(o.up||o.frozen)&&!actionBusy,canRestart=o.started&&(!o.up||o.left)&&!o.frozen&&!actionBusy,canRemove=!actionBusy;
   const canFreeze=LIVE&&o.up&&!o.frozen&&!actionBusy,canThaw=LIVE&&o.frozen&&!actionBusy;
   const freezeButtons=LIVE?`<button class="btn" data-act="freeze" data-key="a-freeze" ${canFreeze?'':'disabled'} title="Pause the server as a debugger or a long GC pause would: it keeps its connections but answers and does nothing, so its peers see it fall silent">Freeze</button><button class="btn" data-act="thaw" data-key="a-thaw" ${canThaw?'':'disabled'} title="Let the frozen server carry on where it stopped">Thaw</button>`:'';

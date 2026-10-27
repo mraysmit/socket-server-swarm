@@ -280,13 +280,30 @@ public final class SwarmManager implements AutoCloseable {
         at.servers().get(at.position()).thaw();
     }
 
+    /** The instructions a server answers, one per command plugin it loaded, in name order; none for one not known. */
+    List<String> instructions(String serverId) {
+        var server = find(serverId);
+        return server == null ? List.of() : server.instructions().stream().sorted().toList();
+    }
+
     /** Whether the server is frozen; one the harness does not know is not. */
-    synchronized boolean frozen(String serverId) {
-        try {
-            var at = locate(serverId);
-            return at.servers().get(at.position()).frozen();
-        } catch (IllegalArgumentException unknown) {
-            return false;
+    boolean frozen(String serverId) {
+        var server = find(serverId);
+        return server != null && server.frozen();
+    }
+
+    /**
+     * A server by ID, for the snapshot. It takes only the swarm map's lock, never this manager's, which a large swarm
+     * holds for as long as it takes to start; so the page keeps updating meanwhile.
+     */
+    private ServerInstance find(String serverId) {
+        synchronized (swarms) {
+            try {
+                var at = locate(serverId);
+                return at.servers().get(at.position());
+            } catch (IllegalArgumentException unknown) {
+                return null;
+            }
         }
     }
 

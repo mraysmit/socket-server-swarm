@@ -18,8 +18,8 @@ experiment "${millis} ms of delay everywhere and ${percent}% loss at ${lossy}", 
         loss([lossy], percent)
         20.times { i ->
             String on = everyone[i % everyone.size()]
-            put on, "slow-${i}", "written on ${on}"
-            written["slow-${i}"] = "written on ${on}"
+            put on, key("slow-${i}"), "written on ${on}"
+            written[key("slow-${i}")] = "written on ${on}"
         }
         check awaitInSync(name, 60_000), 'the swarm converges even while the network is bad'
         heal()

@@ -5,7 +5,7 @@
 String name = args ? args[0] : 'kv'
 def servers = alive(name)
 def writer = servers.first()
-String key = "roundtrip-${System.currentTimeMillis()}"
+String key = this.key("roundtrip")
 
 put writer, key, [colour: 'blue', size: 3]
 awaitInSync name

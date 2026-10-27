@@ -10,7 +10,7 @@ def written = [:]   // every write a server acknowledged: key -> value
 
 def writeSome = { int count ->
     count.times {
-        String key = "chaos-${written.size()}"
+        String key = this.key("chaos-${written.size()}")
         String on = randomServer(name)
         try { put on, key, "${on}@${System.nanoTime()}"; written[key] = get(on, key) }
         catch (Exception refused) { log "write to ${on} refused: ${refused.message}" }

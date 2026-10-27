@@ -51,6 +51,8 @@ final class SwarmSnapshot {
             var snapshot = new LinkedHashMap<String, Object>();
             snapshot.put("takenAtMillis", System.currentTimeMillis());
             snapshot.put("swarms", out);
+            // The network rules in force, so the page can show which servers are cut off, slowed or losing traffic.
+            snapshot.put("network", manager.network().describe());
             return snapshot;
         }
     }
@@ -116,10 +118,13 @@ final class SwarmSnapshot {
             var frozen = server(endpoint, false, "Frozen", null);
             frozen.put("frozen", true);
             frozen.put("kv", null);
+            frozen.put("plugins", manager.instructions(endpoint.serverId()));
             return frozen;
         }
         var server = probeServer(manager, endpoint, withMembers);
         server.put("kv", Boolean.TRUE.equals(server.get("alive")) ? kv(manager, endpoint) : null);
+        // The instructions it answers, one per command plugin loaded, known without asking the server.
+        server.put("plugins", manager.instructions(endpoint.serverId()));
         return server;
     }
 

@@ -12,7 +12,7 @@ experiment "a rolling restart of ${size} servers loses nothing", [
     method: {
         alive(name).each { server ->
             String other = alive(name).find { it != server }
-            String key = "rolling-${server}"
+            String key = this.key("rolling-${server}")
             put other, key, "written before ${server} restarted"
             written[key] = "written before ${server} restarted"
             kill server
