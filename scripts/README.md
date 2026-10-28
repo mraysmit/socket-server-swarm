@@ -49,6 +49,7 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | `call id, instruction, parameters` | Any instruction on one server. |
 | `load name, requests, concurrency` | A verified echo load test across the swarm. |
 | `alive name`, `servers name`, `randomServer name`, `snapshot()` | The members up, every server, one at random, everything. |
+| `assessments id`, `bootId id`, `rating id, memberId, bootId` | One server's gossip view: how many members it rates ALIVE, SUSPECT, DEAD and so on; the boot ID a server runs under now; how one server rates one boot of another. |
 | `awaitAlive name, n`, `awaitInSync name`, `waitFor what, ms { ... }` | Wait for gossip to agree, for the stores to match, or for any condition. |
 | `check condition, 'what'`, `log 'text'`, `pause ms` | Record a pass or fail, print, wait. |
 | `experiment 'title', [steady: {...}, method: {...}, rollback: {...}]` | A chaos experiment: steady state before and after, rollback always. |

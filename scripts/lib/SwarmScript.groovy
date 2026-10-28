@@ -231,6 +231,24 @@ abstract class SwarmScript extends Script {
     /** Gossip's view from one server: how many members it rates ALIVE, SUSPECT, DEAD and so on. */
     Map assessments(String serverId) { call(serverId, 'gossip', [operation: 'status']).assessments as Map }
 
+    /** The boot ID a server runs under now; a restart gives it a new one. */
+    String bootId(String serverId) { call(serverId, 'gossip', [operation: 'status']).self.bootId }
+
+    /**
+     * How one server rates one boot of another in its gossip view: ALIVE, SUSPECT, DEAD, LEFT or CANDIDATE, or null when
+     * it holds no record of that boot. Counting assessments cannot say this once old boots are retained beside it.
+     */
+    String rating(String serverId, String memberId, String memberBootId) {
+        String cursor = null
+        while (true) {
+            def page = call(serverId, 'gossip', cursor ? [operation: 'members', cursor: cursor] : [operation: 'members'])
+            def row = page.members.find { it.serverId == memberId && it.bootId == memberBootId }
+            if (row) { return row.assessment }
+            cursor = page.nextCursor
+            if (!cursor) { return null }
+        }
+    }
+
     // ---- Waiting and checking ----------------------------------------------------------------------------------
 
     /**

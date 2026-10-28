@@ -16,6 +16,8 @@ def steady = { awaitAlive(name, size) && awaitInSync(name) && written.every { ke
     experiment "${victim} frozen for ${pause.seconds} s", [
         steady: steady,
         method: {
+            // Its peers keep records of earlier boots too, so each check is about the boot that is frozen.
+            String boot = bootId(victim)
             frozenFor(victim, pause.seconds * 1000) {
                 String writer = alive(name).find { it != victim }
                 String key = this.key("frozen-${victim}-${pause.seconds}")
@@ -23,11 +25,11 @@ def steady = { awaitAlive(name, size) && awaitInSync(name) && written.every { ke
                 written[key] = "written while ${victim} was frozen"
                 // The others must notice the silence: the frozen server is no longer rated ALIVE by any of them.
                 check waitFor("peers stop rating ${victim} ALIVE", pause.seconds * 1000 - 500) {
-                    servers(name).findAll { it.alive }.every { it.gossip?.status?.assessments?.ALIVE == size - 1 }
+                    alive(name).every { rating(it, victim, boot) != 'ALIVE' }
                 }, "the others noticed ${victim} fell silent"
                 // And they reach the expected verdict before the thaw: SUSPECT for the short pause, DEAD for the long one.
                 check waitFor("peers rate ${victim} ${pause.peersSee}", pause.seconds * 1000 - 500) {
-                    servers(name).findAll { it.alive }.every { it.gossip?.status?.assessments?.get(pause.peersSee) == 1 }
+                    alive(name).every { rating(it, victim, boot) == pause.peersSee }
                 }, "the others rate ${victim} ${pause.peersSee}"
             }
         },

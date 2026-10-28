@@ -15,10 +15,13 @@ experiment "${cycles} cycles of servers joining and going", [
         cycles.times { cycle ->
             joined += add(name, 1)
             awaitAlive name, size + 1
-            String key = this.key("churn-${cycle}")
-            put randomServer(name), key, "cycle ${cycle}"
-            written[key] = "cycle ${cycle}"
             String going = joined.first()
+            // Written on a server that stays: a write held only by a server killed before it replicates is lost, which
+            // is how asynchronous replication behaves, not what this experiment is about.
+            String writer = (alive(name) - going).shuffled().first()
+            String key = this.key("churn-${cycle}")
+            put writer, key, "cycle ${cycle}"
+            written[key] = "cycle ${cycle}"
             if (cycle % 2 == 1) { kill going }   // gone without warning: peers find out by timeout
             remove going                          // otherwise a graceful departure
             joined.remove(going)
