@@ -23,9 +23,14 @@ public record GossipSettings(String advertiseHost, Map<String, String> options) 
     /** The plugin's own defaults, with servers advertising the loopback address. */
     public static GossipSettings defaults() { return new GossipSettings("127.0.0.1", Map.of()); }
 
-    /** Short rounds and thresholds, so convergence and failure detection happen in seconds. */
+    /**
+     * Short rounds and thresholds, so convergence and failure detection happen in seconds. The connect timeout is kept
+     * well below the suspect threshold: a request to a peer behind a partition holds one of a server's two exchange slots
+     * until it times out, and at the plugin's 5 s default both slots stay taken longer than 4 s, so a split server stops
+     * hearing even the peers on its own side.
+     */
     public static GossipSettings fast() {
         return new GossipSettings("127.0.0.1", Map.of("round.millis", "200", "heartbeat.millis", "500",
-                "suspect.after.millis", "4000", "dead.after.millis", "10000"));
+                "suspect.after.millis", "4000", "dead.after.millis", "10000", "connect.timeout.millis", "1000"));
     }
 }

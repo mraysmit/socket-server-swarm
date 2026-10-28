@@ -92,6 +92,8 @@ class SwarmGossipTest {
         assertThrows(IllegalArgumentException.class, () -> new GossipSettings("127.0.0.1", Map.of("server.a.swarm.id", "x")));
         assertThrows(IllegalArgumentException.class, () -> new GossipSettings("127.0.0.1", Map.of("advertise.host", "x")));
         assertEquals("500", GossipSettings.fast().options().get("heartbeat.millis"));
+        // Well below the 4 s suspect threshold, so requests lost behind a partition cannot hold every exchange slot past it.
+        assertEquals("1000", GossipSettings.fast().options().get("connect.timeout.millis"));
     }
 
     @Test
