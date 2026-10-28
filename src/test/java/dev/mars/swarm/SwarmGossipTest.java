@@ -222,7 +222,7 @@ class SwarmGossipTest {
     @Test
     void restartedServerGetsANewBootIdAndRejoinsTheSwarm() throws Exception {
         requirePlugin();
-        try (var manager = new SwarmManager(List.of(PLUGIN), GossipSettings.fast())) {
+        try (var stderr = new StderrLines(); var manager = new SwarmManager(List.of(PLUGIN), GossipSettings.fast())) {
             var endpoints = manager.start("rst", 3);
             awaitAllSee(manager, endpoints, "ALIVE", 3);
             String oldBoot = bootId(manager, endpoints.get(2));
@@ -237,6 +237,13 @@ class SwarmGossipTest {
                         row.get("serverId").equals("rst-Server-003") && newBoot.equals(row.get("bootId")) && "ALIVE".equals(row.get("assessment"))));
             }
             await("restarted server sees both peers ALIVE", () -> members(manager, endpoints.get(2)).values().stream().filter("ALIVE"::equals).count() >= 2);
+            for (var peer : endpoints.subList(0, 2)) {
+                assertTrue(memberRows(manager, peer).stream().noneMatch(row ->
+                                row.get("serverId").equals("rst-Server-003") && oldBoot.equals(row.get("bootId")) && "ALIVE".equals(row.get("assessment"))),
+                        peer.serverId() + " no longer rates the replaced boot ALIVE");
+            }
+            // A restart on the same port replaces the old process; it is not a second server with the same ID.
+            assertEquals(List.of(), stderr.containing("event=IDENTITY_CONFLICT"));
         }
     }
 

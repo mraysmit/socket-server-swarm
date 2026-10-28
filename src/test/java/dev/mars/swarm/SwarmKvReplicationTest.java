@@ -185,7 +185,7 @@ class SwarmKvReplicationTest {
     @Test
     void aServerThatWasStoppedAndRestartedHasWhatItMissedAndWhatItHadBefore() throws Exception {
         requirePlugins();
-        try (var manager = swarm(true)) {
+        try (var stderr = new StderrLines(); var manager = swarm(true)) {
             var servers = manager.start("kv", 3);
             awaitGossipConverged(manager, servers);
             String third = servers.get(2).serverId();
@@ -196,6 +196,8 @@ class SwarmKvReplicationTest {
             kv(manager, servers.get(1).serverId(), Map.of("operation", "delete", "key", "before"));
             manager.restartServer(third);
             await("the restarted server to catch up", () -> found(manager, third, "during") && !found(manager, third, "before"));
+            // A restart on the same port replaces the old process; it is not a second server with the same ID.
+            assertEquals(List.of(), stderr.containing("event=IDENTITY_CONFLICT"));
         }
     }
 
