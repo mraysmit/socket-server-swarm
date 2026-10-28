@@ -68,6 +68,7 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | [chaos/churn.groovy](chaos/churn.groovy) | Servers join and go continuously while clients write. |
 | [chaos/freeze.groovy](chaos/freeze.groovy) | A server frozen past the suspect and then the dead timeout is noticed, and recovers when thawed. |
 | [chaos/partition.groovy](chaos/partition.groovy) | Split in two, each side sees only itself and keeps its writes; healed, it converges and a key written on both sides holds the later write. |
+| [chaos/swarm-of-ten.groovy](chaos/swarm-of-ten.groovy) | Starts a swarm of ten from nothing, then a third crashes at once, it splits four against six, and gray failures (slowed, lossy and frozen servers) strike together; no acknowledged write is lost. |
 | [chaos/slow-network.groovy](chaos/slow-network.groovy) | Delay everywhere and heavy loss at one server: writes are still taken and the swarm still converges. |
 
 Network faults apply to the requests servers make of one another (gossip exchanges, key-value pushes and comparisons),
