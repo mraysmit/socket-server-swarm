@@ -31,17 +31,24 @@ public final class UiServer implements AutoCloseable {
     private static final Pattern ACTIVITY_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/activity");
     private static final Pattern SWARM_ACTION_PATH = Pattern.compile("/api/swarms/([A-Za-z][A-Za-z0-9._-]*)/(stop|send|test|servers)");
     private static final int MAX_BODY = 8192;
+    /** The most calls one reading of the log returns; the page keeps up by reading twice a second. */
+    private static final int TRAFFIC_LIMIT = 5_000;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     private final SocketActivity activity;
+    private final CallLog calls;
 
     /** Pass port 0 to let the operating system choose, as the tests do. */
-    public UiServer(SwarmManager manager, int port) throws IOException { this(manager, port, null); }
+    public UiServer(SwarmManager manager, int port) throws IOException { this(manager, port, null, null); }
 
     /** With a recorder, {@code GET /api/servers/<id>/activity} serves each server's socket activity. */
-    public UiServer(SwarmManager manager, int port, SocketActivity activity) throws IOException {
+    public UiServer(SwarmManager manager, int port, SocketActivity activity) throws IOException { this(manager, port, activity, null); }
+
+    /** With a call log, {@code GET /api/traffic} serves the calls between servers, and actions taken here are marked in it. */
+    public UiServer(SwarmManager manager, int port, SocketActivity activity, CallLog calls) throws IOException {
         this.activity = activity;
+        this.calls = calls;
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0);
         server.createContext("/", exchange -> handle(exchange, "GET", () -> page(exchange)));
         server.createContext("/api/snapshot", exchange -> handle(exchange, "GET", () -> snapshot(exchange, manager)));
@@ -57,6 +64,10 @@ public final class UiServer implements AutoCloseable {
             } else {
                 handle(exchange, "POST", () -> network(exchange, manager.network()));
             }
+        });
+        server.createContext("/api/traffic", exchange -> {
+            if (exchange.getRequestMethod().equals("GET")) { handle(exchange, "GET", () -> traffic(exchange)); }
+            else { handle(exchange, "POST", () -> addMark(exchange)); }
         });
         server.setExecutor(executor);
         server.start();
@@ -120,6 +131,7 @@ public final class UiServer implements AutoCloseable {
                 }
                 default -> manager.restartServer(serverId);
             }
+            mark(what, serverId);
             reply(exchange, 200, "application/json", "{\"ok\":true}");
         } catch (IllegalArgumentException e) {
             reply(exchange, 404, "application/json", error(e.getMessage()));
@@ -137,6 +149,7 @@ public final class UiServer implements AutoCloseable {
             var body = body(exchange);
             if (path.equals("/api/swarms")) {
                 var endpoints = manager.start(text(body, "name"), integer(body, "servers", 0));
+                mark("start", text(body, "name") + " with " + endpoints.size() + " servers");
                 reply(exchange, 200, "application/json", Json.write(java.util.Map.of("ok", true, "servers", endpoints.stream().map(ServerEndpoint::serverId).toList())));
                 return;
             }
@@ -146,10 +159,12 @@ public final class UiServer implements AutoCloseable {
             switch (matcher.group(2)) {
                 case "stop" -> {
                     manager.stop(name);
+                    mark("stop", "swarm " + name);
                     reply(exchange, 200, "application/json", "{\"ok\":true}");
                 }
                 case "servers" -> {
                     var added = manager.addServers(name, integer(body, "count", 1));
+                    mark("add", added.size() + " to " + name);
                     reply(exchange, 200, "application/json", Json.write(java.util.Map.of("ok", true, "servers", added.stream().map(ServerEndpoint::serverId).toList())));
                 }
                 case "send" -> {
@@ -164,6 +179,7 @@ public final class UiServer implements AutoCloseable {
                     reply(exchange, 200, "application/json", Json.write(java.util.Map.of("ok", true, "replies", replies)));
                 }
                 default -> {
+                    mark("load", name + ": " + integer(body, "requests", 1000) + " requests");
                     var result = manager.test(name, integer(body, "requests", 1000), integer(body, "concurrency", 100), done -> { });
                     var row = new java.util.LinkedHashMap<String, Object>();
                     row.put("ok", result.successful());
@@ -204,6 +220,7 @@ public final class UiServer implements AutoCloseable {
                 case "/api/network/heal" -> network.heal();
                 default -> { reply(exchange, 404, "application/json", error("Not found")); return; }
             }
+            mark("network", exchange.getRequestURI().getPath().substring("/api/network/".length()) + " " + body);
             reply(exchange, 200, "application/json", Json.write(network.describe()));
         } catch (IllegalArgumentException e) {
             reply(exchange, 400, "application/json", error(e.getMessage()));
@@ -229,6 +246,7 @@ public final class UiServer implements AutoCloseable {
     private void stopAll(HttpExchange exchange, SwarmManager manager) throws IOException {
         try {
             manager.stopAll();
+            mark("stop", "every swarm");
             reply(exchange, 200, "application/json", "{\"ok\":true}");
         } catch (IllegalStateException e) {
             reply(exchange, 409, "application/json", error(e.getMessage()));
@@ -304,6 +322,26 @@ public final class UiServer implements AutoCloseable {
             reply(exchange, 502, "application/json", error(e.getMessage()));
         }
     }
+
+    /** {@code GET /api/traffic?after=<seq>}: the calls and marks since then, and every call still in flight. */
+    private void traffic(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestURI().getPath().equals("/api/traffic")) { reply(exchange, 404, "application/json", error("Not found")); return; }
+        if (calls == null) { reply(exchange, 200, "application/json", "{\"available\":false}"); return; }
+        reply(exchange, 200, "application/json; charset=utf-8", Json.write(calls.view(afterParameter(exchange.getRequestURI().getRawQuery()), TRAFFIC_LIMIT)));
+    }
+
+    /** {@code POST /api/traffic/mark} with {"text": "..."}: notes a step, as a chaos script does, for the page's timeline. */
+    private void addMark(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestURI().getPath().equals("/api/traffic/mark")) { reply(exchange, 404, "application/json", error("Not found")); return; }
+        try {
+            mark("step", text(body(exchange), "text"));
+            reply(exchange, 200, "application/json", "{\"ok\":true}");
+        } catch (IllegalArgumentException e) {
+            reply(exchange, 400, "application/json", error(e.getMessage()));
+        }
+    }
+
+    private void mark(String kind, String text) { if (calls != null) { calls.mark(kind, text); } }
 
     private static long afterParameter(String query) {
         if (query != null) {

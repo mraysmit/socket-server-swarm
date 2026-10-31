@@ -315,13 +315,16 @@ abstract class SwarmScript extends Script {
      */
     boolean experiment(String title, Map<String, Closure> parts) {
         log "=== Experiment: ${title}"
+        mark "experiment: ${title}"
         if (!check(parts.steady.call() as boolean, "steady state holds before: ${title}")) {
             log "=== Aborted: the swarm was not steady to begin with"
             return false
         }
         boolean ok = false
         try {
+            mark "breaking it: ${title}"
             parts.method.call()
+            mark "checking it recovered: ${title}"
             ok = check(parts.steady.call() as boolean, "steady state holds after: ${title}")
         } catch (Exception failure) {
             check false, "method ran without error: ${failure}"
@@ -332,7 +335,14 @@ abstract class SwarmScript extends Script {
             }
         }
         log "=== ${ok ? 'Held' : 'Broke'}: ${title}"
+        mark "${ok ? 'held' : 'broke'}: ${title}"
         ok
+    }
+
+    /** Notes a step on the page's timeline, so a replay shows what was done when. An older harness does not have one, which is fine. */
+    void mark(String text) {
+        try { request('POST', '/api/traffic/mark', [text: text.toString()]) }
+        catch (Exception ignored) { /* A step goes unmarked; the script carries on. */ }
     }
 
     // ---- Plumbing -----------------------------------------------------------------------------------------------

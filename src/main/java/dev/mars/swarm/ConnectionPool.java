@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 /**
  * Keeps connections to the managed servers open between requests, using the host's {@link KeepAliveClient}, which the
@@ -27,6 +28,7 @@ final class ConnectionPool implements AutoCloseable {
     private final KeepAliveClient client;
     private final AtomicLong opened = new AtomicLong();
     private final AtomicLong reused = new AtomicLong();
+    private volatile Consumer<UUID> sending = id -> { };
 
     ConnectionPool() { this(DEFAULT_MAX_IDLE_PER_SERVER); }
 
@@ -42,9 +44,13 @@ final class ConnectionPool implements AutoCloseable {
         });
     }
 
+    /** {@code sending} is told each request's message ID before the request goes out. */
+    void reportSending(Consumer<UUID> sending) { this.sending = sending; }
+
     /** Sends one command and returns its reply; a server's error reply is returned, not thrown. */
     CommandReply execute(ServerEndpoint endpoint, String instruction, Map<String, Object> parameters) throws IOException {
         var request = new CommandRequest(1, UUID.randomUUID(), instruction, parameters);
+        sending.accept(request.messageId());
         long deadline = System.nanoTime() + REQUEST_TIMEOUT.toNanos();
         var reply = client.exchange(List.of(address(endpoint.port())), KeepAliveClient.envelope(request, true),
                 KeepAliveClient.envelope(request, false), deadline).reply();

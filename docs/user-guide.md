@@ -81,9 +81,41 @@ The page polls every second, or every 3 seconds once a swarm is larger than 32 s
   back. The canvas refits as the panel changes.
 - **Events tab:** a log of what changed (servers started or stopped, ratings changing, the swarm
   converging). It starts empty after a refresh and does not survive reloading the page.
+- **Call traffic:** the curved lines and moving dots on the canvas are the real calls servers make of one another. See
+  [Watch the calls](#watch-the-calls) below.
 - **Zoom and pan:** mouse wheel or `+` and `-` to zoom, drag the empty canvas to pan, `0` or the Fit
   button to frame everything, `F` or Focus to hide the side panels. The Find box selects a server by
   part of its ID, for example `50`.
+
+### Watch the calls
+
+The harness records every call one server makes of another, and every request from outside the swarm, and the page replays
+them. It reads them twice a second, so it shows them about a second late.
+
+- **Dots:** each is one real call, coloured by kind: gossip, KV push, KV compare, clients, other. The smaller dot coming back
+  is its reply. A hollow dot is waiting for a reply, and these pile up at a frozen server. A red dot was lost halfway, refused at
+  the door or answered with an error, and an amber one timed out. Times are stretched, because a call of a few milliseconds could
+  not be seen, but a slower call still moves more slowly.
+- **Curved lines:** one per direction, thicker the more calls it has carried in the last few seconds, amber when some failed and
+  red when most did. Hover over one for its rate, p50 and p95 times, failures and last call. Click it to see only those calls in
+  **Socket activity**; the **Traffic** tab also shows those that never arrived.
+- **Straight lines from the selected server:** how it rates its peers, which is opinion and not traffic. **Ratings** hides them.
+- **Dashed lines:** network rules. Purple with ✂ is cut by a partition, and amber is slowed or losing requests, labelled with the
+  figures the harness applies between those two servers.
+- **A red `!` on a line:** the server's rating of that peer disagrees with how its calls to it are going: it rates it ALIVE while
+  its calls fail, or SUSPECT or DEAD while they are answered. That is how a gray failure shows itself. These are also listed at the
+  top of the **Traffic** tab and in **Events**, and the inspector's **Calls** column shows each member's recent answered and failed calls.
+- **The clients box:** in the corner of a swarm, standing for scripts, the page and load tests. The harness polling its own
+  servers is left out, so a `put` from a script can be seen entering one server and then fanning out to its peers.
+- **Filters:** the chips above the canvas pick the kinds of call, and **Selected only** dims everything that does not touch the
+  selected server. The browser remembers the kinds you chose.
+- **Going back:** **Hold** stops at this moment, the slider goes back up to a minute, and the speed menu slows the replay down to
+  ⅒×. Each tick on the slider is something done to the swarm (a server frozen, a network rule, or a step of a chaos script), and
+  pressing one plays from just before it. **Live** returns to the present. While going back, outlines, lines and dots show that
+  moment and the panels stay on the present. A server removed since then is not drawn.
+- **A large swarm:** only so many dots are drawn, failures first, and zoomed far out only failures, so the lines carry the rest. The
+  bar above the canvas says when this is happening. With reduced motion set in your system, dots do not move: failures and
+  waiting calls show at the middle of their line.
 
 ## 7. Make something happen
 
@@ -143,3 +175,4 @@ terminal or press Ctrl+C, which closes everything and exits.
 | "Address already in use" with many servers on Windows | Too many sockets in TIME_WAIT. Check with `netstat -an \| find /c "TIME_WAIT"`, stop other swarms, and wait for it to drain. See the 100-server notes in the README. |
 | Start says the name is invalid or already exists | A name must start with a letter and use only letters, digits, dots, underscores or hyphens, and each swarm needs a different name. The harness message is shown under the controls. |
 | Socket activity is empty | Activity is read from the console output, so it only covers servers started by this harness and only while the UI is on (not with `--no-ui`). |
+| No lines or dots between servers | Servers call one another only with `--gossip` or `--gossip-fast`. Check the filter chips above the canvas too. If the harness fails to compile with `cannot find symbol PeerTraffic`, rebuild the server project (step 2). |

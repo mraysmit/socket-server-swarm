@@ -16,17 +16,18 @@
   --bg:#eaeef2; --panel:#fafbfc; --ink:#14202b; --mute:#566676; --line:#d0d8df; --soft:#e2e8ee;
   --accent:#2456d6; --accent-ink:#ffffff;
   --ok:#0f7a50; --warn:#a35a00; --bad:#c0302c; --gone:#6f7e8c; --ice:#1f7fc4; --ice-soft:#e1f0fb; --cut:#7a3fcf;
+  --t-gossip:var(--accent); --t-push:#b3329a; --t-compare:#0a7f86; --t-client:var(--ink); --t-other:var(--mute);
   --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
   --accent:#7aa2ff; --accent-ink:#0c151e;
-  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; color-scheme:dark;}}
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; color-scheme:dark;}}
 :root[data-theme="dark"]{
   --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
   --accent:#7aa2ff; --accent-ink:#0c151e;
-  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; color-scheme:dark;}
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; color-scheme:dark;}
 
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;
@@ -141,11 +142,56 @@ svg[data-lod="mid"] .slab,svg[data-lod="low"] .slab,svg[data-lod="low"] .plug,sv
 .grp{font-family:var(--mono);font-size:11px;fill:var(--mute);text-anchor:middle}
 .badge{stroke:var(--panel);stroke-width:2}
 .b-ALIVE{fill:var(--ok)} .b-SUSPECT{fill:var(--warn)} .b-DEAD{fill:var(--bad)} .b-LEFT{fill:var(--gone)} .b-NONE,.b-CANDIDATE{fill:var(--panel);stroke:var(--mute);stroke-width:1.5}
-.eye{stroke-width:max(1.5px,calc(1px / var(--k,1)));opacity:.45;fill:none}
+.eye{stroke-width:calc(1px / var(--k,1));opacity:.45;fill:none}
 .eye.ALIVE{stroke:var(--ok)} .eye.SUSPECT{stroke:var(--warn);stroke-dasharray:4 4} .eye.DEAD{stroke:var(--bad);stroke-dasharray:2 5} .eye.LEFT,.eye.CANDIDATE{stroke:var(--gone);stroke-dasharray:1 6}
 .pulse{fill:var(--accent)}
 .pulse.rep{opacity:.65}
 .pulse.drop{fill:var(--bad)}
+/* live traffic: one curved line per direction, thicker the more calls it has carried lately, and a dot per call */
+.tk-gossip{--c:var(--t-gossip)} .tk-push{--c:var(--t-push)} .tk-compare{--c:var(--t-compare)} .tk-client{--c:var(--t-client)} .tk-other{--c:var(--t-other)}
+.tlink{fill:none;stroke:var(--c);stroke-linecap:round;pointer-events:none}
+.tlink.shaky{stroke:var(--warn)} .tlink.bad{stroke:var(--bad)}
+.thit{fill:none;stroke:transparent;cursor:pointer}
+.tarrow{fill:var(--mute)}
+.tdot{fill:var(--c);pointer-events:none}
+.tdot.rep{opacity:.65} .tdot.fail{fill:var(--bad)} .tdot.timeout{fill:var(--warn)}
+.tdot.wait{fill:var(--panel);stroke:var(--warn);stroke-width:2}
+.rule{fill:none;pointer-events:none;stroke-width:calc(1.2px / var(--k,1))}
+.rule.cut{stroke:var(--cut);stroke-dasharray:8 7;opacity:.6}
+.rule.slow{stroke:var(--warn);stroke-dasharray:3 5;opacity:.55}
+.rulelab{font-family:var(--mono);font-size:calc(11px / var(--k,1));text-anchor:middle;dominant-baseline:central;paint-order:stroke;stroke:var(--bg);stroke-width:calc(3px / var(--k,1));pointer-events:none}
+.rulelab.cut{fill:var(--cut)} .rulelab.slow{fill:var(--warn)}
+svg[data-lod="low"] .rulelab{display:none}
+.flag{font-family:var(--mono);font-weight:600;font-size:calc(15px / var(--k,1));text-anchor:middle;dominant-baseline:central;fill:var(--bad);paint-order:stroke;stroke:var(--panel);stroke-width:calc(4px / var(--k,1));pointer-events:none}
+.clientnode rect{fill:var(--panel);stroke:var(--t-client);stroke-width:1.5}
+.clientnode text{font-family:var(--mono);font-size:10px;text-anchor:middle;fill:var(--ink)}
+/* the traffic bar over the canvas: what to show, and which moment to show it from */
+.tbar{position:absolute;left:12px;right:12px;top:12px;display:flex;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px}
+.tbar-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tbar-label{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-right:2px}
+.tchip{display:inline-flex;align-items:center;gap:5px;background:none;border:1px solid var(--line);border-radius:5px;padding:2px 7px;font-size:12px;cursor:pointer;color:var(--mute)}
+.tchip i{width:9px;height:9px;border-radius:50%;background:var(--c);flex:none}
+.tchip[aria-pressed="true"]{color:var(--ink);border-color:var(--mute)}
+.tchip[aria-pressed="false"] i{background:none;box-shadow:inset 0 0 0 1.5px var(--line)}
+.tchip:hover{border-color:var(--accent)}
+.tchip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.tbar-gap{width:6px}
+.tr-rate,.tr-time{font-family:var(--mono);font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tr-time.back{color:var(--warn)}
+.tr-track{position:relative;flex:1 1 180px;min-width:120px;height:22px;display:flex;align-items:center}
+.tr-track input{width:100%;margin:0;accent-color:var(--accent)}
+.tr-marks{position:absolute;inset:0;pointer-events:none}
+.tr-mark{position:absolute;top:1px;width:5px;height:20px;margin-left:-2px;padding:0;border:0;border-radius:2px;background:var(--mute);opacity:.75;cursor:pointer;pointer-events:auto}
+.tr-mark:hover,.tr-mark:focus-visible{opacity:1;outline:2px solid var(--accent);outline-offset:1px}
+.tr-mark.mk-network{background:var(--cut)} .tr-mark.mk-stop,.tr-mark.mk-remove,.tr-mark.mk-leave{background:var(--bad)} .tr-mark.mk-freeze,.tr-mark.mk-thaw{background:var(--ice)} .tr-mark.mk-step{background:var(--accent)}
+.live .canvas-sel{top:96px}
+.tip{pointer-events:none}
+.pair-note{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--mute)}
+.pair-note b{font-family:var(--mono);font-weight:500;color:var(--ink)}
+.beliefs{list-style:none;margin:0;padding:6px 14px;border-bottom:1px solid var(--line);font-size:12px;display:flex;flex-direction:column;gap:3px;color:var(--bad)}
+.mark-row td{color:var(--accent);font-family:var(--mono)}
+.callsflag{color:var(--bad);font-weight:600;margin-left:4px}
+.kdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c);margin-right:6px}
 .legend{position:absolute;left:12px;bottom:12px;max-width:min(360px,60%);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12px;color:var(--mute)}
 .legend summary{cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;list-style-position:inside}
 .legend-items{display:flex;flex-direction:column;gap:6px;padding:8px 0 4px}
@@ -186,7 +232,7 @@ td.m{font-family:var(--mono)} td.r,th.r{text-align:right}
 .spark .base{stroke:var(--line);stroke-width:1}
 .feedwrap{overflow:auto}
 .feedwrap td.dim,.feedwrap tr.dim td{color:var(--mute)}
-.p-OK{color:var(--ok)} .p-ERROR,.p-ABORTED{color:var(--bad)} .p-IN_FLIGHT{color:var(--warn)} .p-CONNECTED{color:var(--gone)}
+.p-OK{color:var(--ok)} .p-ERROR,.p-ABORTED,.p-ERROR_REPLY,.p-LOST,.p-REFUSED{color:var(--bad)} .p-IN_FLIGHT,.p-TIMEOUT{color:var(--warn)} .p-CONNECTED{color:var(--gone)}
 
 /* dock under the canvas: socket activity and events stay on screen */
 #insp-table{flex:1;min-height:0;overflow:auto}
@@ -241,9 +287,9 @@ dialog#cmd-ref>header h2{font-size:15px;font-weight:600;font-family:var(--sans);
 .ref-code{display:flex;gap:8px;align-items:flex-start}
 .ref-code code{flex:1;min-width:0;font-family:var(--mono);font-size:12px;line-height:1.5;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);word-break:break-all;user-select:all}
 .ref-code .btn{flex:none}
-#pane-activity{display:flex;flex-direction:column;overflow:hidden}
-#pane-activity .act-top{padding:8px 14px}
-#pane-activity .feedwrap{flex:1;min-height:0}
+#pane-activity,#pane-traffic{display:flex;flex-direction:column;overflow:hidden}
+#pane-activity .act-top,#pane-traffic .act-top{padding:8px 14px}
+#pane-activity .feedwrap,#pane-traffic .feedwrap{flex:1;min-height:0}
 .btn.small{padding:3px 9px;font-size:12px}
 input.find{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 9px;width:170px}
 input.find:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -300,6 +346,7 @@ body{margin:0}
 <body>
 
 <div class="pop" id="pop" role="note" hidden></div>
+<div class="pop tip" id="tip" role="status" hidden></div>
 
 <dialog id="cmd-ref" aria-labelledby="cmd-ref-title">
   <header><h2 id="cmd-ref-title">Command reference</h2><button class="btn small" id="cmd-ref-close" type="button">Close</button></header>
@@ -390,8 +437,36 @@ body{margin:0}
     <main class="card stage" aria-label="Swarm graph">
       <div class="canvas" id="canvas">
         <svg id="stage" role="img" aria-label="Live graph of server swarms and gossip exchanges. Scroll to zoom, drag to pan.">
-          <g id="world"><g id="g-under"></g><g id="g-pulses"></g><g id="g-nodes"></g></g>
+          <defs><marker id="tarrow" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="6" markerHeight="6" orient="auto"><path class="tarrow" d="M0 0L8 4L0 8z"/></marker></defs>
+          <g id="world"><g id="g-under"></g><g id="g-rules"></g><g id="g-links"></g><g id="g-pulses"></g><g id="g-dots"></g><g id="g-flags"></g><g id="g-nodes"></g></g>
         </svg>
+        <div class="tbar" id="tbar" role="group" aria-label="Call traffic" hidden>
+          <div class="tbar-row">
+            <span class="tbar-label">Calls</span>
+            <button class="tchip tk-gossip" type="button" data-kind="gossip" aria-pressed="true" title="Gossip exchanges between servers"><i></i>Gossip</button>
+            <button class="tchip tk-push" type="button" data-kind="push" aria-pressed="true" title="Key-value writes one server passes to another"><i></i>KV push</button>
+            <button class="tchip tk-compare" type="button" data-kind="compare" aria-pressed="true" title="Key-value comparisons between two servers' stores"><i></i>KV compare</button>
+            <button class="tchip tk-client" type="button" data-kind="client" aria-pressed="true" title="Requests from outside the swarm: scripts, the page and load tests. The harness polling its servers is not shown."><i></i>Clients</button>
+            <button class="tchip tk-other" type="button" data-kind="other" aria-pressed="true" title="Anything else one server asks of another"><i></i>Other</button>
+            <span class="tbar-gap"></span>
+            <button class="tchip" type="button" id="tr-only" aria-pressed="false" title="Dim every line and call that does not touch the selected server">Selected only</button>
+            <button class="tchip" type="button" id="tr-ratings" aria-pressed="true" title="The straight lines from the selected server, showing how it rates its peers. They are opinion, not traffic.">Ratings</button>
+            <span class="grow"></span>
+            <span class="tr-rate" id="tr-rate" aria-live="off"></span>
+            <button class="info" type="button" data-info="traffic" aria-expanded="false" aria-label="About the traffic bar" title="About the traffic bar">i</button>
+          </div>
+          <div class="tbar-row">
+            <button class="btn small" type="button" id="tr-hold" aria-pressed="false" title="Stop the replay at this moment; calls keep being recorded">Hold</button>
+            <button class="btn small" type="button" id="tr-live" title="Back to what is happening now" disabled>Live</button>
+            <label class="sr" for="tr-speed">Replay speed</label>
+            <select id="tr-speed" title="How fast to replay. Below 1× the replay falls behind, so you can follow single calls."><option value="1" selected>1×</option><option value="0.5">½×</option><option value="0.25">¼×</option><option value="0.1">⅒×</option></select>
+            <div class="tr-track">
+              <input id="tr-scrub" type="range" min="-60000" max="0" step="100" value="0" aria-label="Moment to replay, up to a minute ago">
+              <div class="tr-marks" id="tr-marks"></div>
+            </div>
+            <span class="tr-time" id="tr-time"></span>
+          </div>
+        </div>
         <div class="canvas-sel" id="canvas-sel" hidden></div>
         <div class="zoom" role="group" aria-label="Zoom">
           <button class="btn" id="zout" title="Zoom out (−)" aria-label="Zoom out">−</button>
@@ -418,6 +493,14 @@ body{margin:0}
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="5" fill="var(--warn)"/></svg>Badge: how the selected server rates it</span>
         <span class="simonly"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--accent)"/></svg>Exchange in flight</span>
         <span class="simonly"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--bad)"/></svg>Exchange failed</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><path d="M2 14Q9 2 16 14" fill="none" stroke="var(--t-gossip)" stroke-width="3"/></svg>A direction calls were made in: thicker means more of them lately, red means they are failing</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--t-gossip)"/></svg>A call on its way, coloured by kind; its reply comes back smaller</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--panel)" stroke="var(--warn)" stroke-width="2"/></svg>A call waiting for its reply; they pile up at a frozen server</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--bad)"/></svg>A call that failed: lost halfway, refused at the door, or answered with an error</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--warn)"/></svg>A call that timed out</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><line x1="1" y1="9" x2="17" y2="9" stroke="var(--cut)" stroke-width="2" stroke-dasharray="4 3"/></svg>Cut by a network rule</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><line x1="1" y1="9" x2="17" y2="9" stroke="var(--warn)" stroke-width="2" stroke-dasharray="2 3"/></svg>Slowed or losing requests by a network rule</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><text x="9" y="14" font-size="15" font-weight="600" text-anchor="middle" fill="var(--bad)" font-family="monospace">!</text></svg>A server's rating of a peer disagrees with how its calls to it are going</span>
         </div>
         </details>
       </div>
@@ -425,6 +508,7 @@ body{margin:0}
         <div class="dock-grip" id="dock-grip" role="separator" aria-orientation="horizontal" aria-label="Resize the panel" aria-valuemin="150" tabindex="0" title="Drag up or down to resize. Arrow keys resize too; double-click resets."></div>
         <div class="dock-bar" role="tablist">
           <button class="tab" id="tab-activity" role="tab" aria-selected="true" aria-controls="pane-activity" data-tab="activity" title="Each row is one connection to the server's main port. The server logs who connected, the instruction, the message ID and the reply status. It does not log message bodies.">Socket activity</button><button class="info" id="info-activity" type="button" data-info="activity" aria-expanded="false" aria-label="About socket activity" title="About socket activity">i</button>
+          <button class="tab" id="tab-traffic" role="tab" aria-selected="false" aria-controls="pane-traffic" data-tab="traffic" title="Every call between servers and from clients, including those that never arrived" hidden>Traffic</button><button class="info" id="info-traffic" type="button" data-info="trafficTab" aria-expanded="false" aria-label="About the traffic tab" title="About the traffic tab" hidden>i</button>
           <button class="tab" id="tab-command" role="tab" aria-selected="false" aria-controls="pane-command" data-tab="command" title="Send one command to any server and see exactly what comes back" hidden>Command</button><button class="info" id="info-command" type="button" data-info="command" aria-expanded="false" aria-label="About the command tab" title="About the command tab">i</button>
           <button class="tab" id="tab-events" role="tab" aria-selected="false" aria-controls="pane-events" data-tab="events">Events</button><button class="info" type="button" data-info="events" aria-expanded="false" aria-label="About events" title="About events">i</button>
           <span class="grow"></span>
@@ -438,7 +522,14 @@ body{margin:0}
             <dl class="act-stats" id="act-stats"></dl>
             <div class="spark" id="act-spark"></div>
           </div>
+          <div id="act-pair"></div>
           <div class="feedwrap tablewrap" id="act-feed"></div>
+        </div>
+        <div class="dock-body" id="pane-traffic" role="tabpanel" hidden>
+          <div class="act-top"><dl class="act-stats" id="tr-stats"></dl></div>
+          <div id="tr-pair"></div>
+          <div id="tr-beliefs"></div>
+          <div class="feedwrap tablewrap" id="tr-feed"></div>
         </div>
         <div class="dock-body" id="pane-command" role="tabpanel" hidden>
           <form class="cmd-form" id="cmd-form" autocomplete="off">
@@ -487,6 +578,9 @@ const NS='http://www.w3.org/2000/svg';
 const $=s=>document.querySelector(s);
 const CFG={round:1000,suspect:7000,dead:16000,retain:32000,travel:650,fanout:2,leaveBudget:2500};
 let T=0,nodes=[],pulses=[],sel=null,paused=false,speed=1,partition=false,logs=[],portN=0;
+/* While the traffic timeline is rewound: the states of the servers at that moment, or null when showing the present. */
+let rewound=null;
+const nodeIdx=new Map();
 /* Live mode reads /api/snapshot from the harness that served this page; otherwise a simulated swarm runs in the browser. */
 let LIVE=false,lastOk=0,pollFailures=0,seenSwarms=new Set(),actionBusy=false,actionNote='';
 /* Camera: world coordinates are drawn through translate(tx ty) scale(k). Until the user moves it, the view refits as servers come and go. */
@@ -511,14 +605,16 @@ function mk(swarm,n,delay){
     rounds:0,inbound:0,failed:0,isolated:true,dep:'NOT_REQUESTED',depEnd:0,nextRound:0,group:n%2,x:0,y:0};
   o.admin=o.main+1;nodes.push(o);return o;
 }
-const state=o=>!o.started?'start':o.left?'left':!o.up?'down':'up';
+const stateNow=o=>!o.started?'start':o.left?'left':!o.up?'down':'up';
+const state=o=>{const h=rewound&&rewound.st[o.id];return h?h[0]:stateNow(o);};
 const worker=o=>LIVE?(o.frozen?'FROZEN':o.gossip?o.workerState:(o.up?'ALIVE':'STOPPED')):
   !o.started?'STARTING':!o.up?'STOPPED':o.left?(T<o.depEnd?'LEAVING':'QUIESCED'):'RUNNING';
 /* The network rules in force in the live harness: which servers are cut off, slowed, or losing traffic. */
 let netRules=null;
 /* A server's status, finer than up or down. The first that applies wins: starting, frozen, stopped, left, cut off by a
    partition, suspected by most of its peers although it is up, still catching up, on a slow or lossy link, running. */
-function status(o){
+function status(o){const h=rewound&&rewound.st[o.id];return h?h[1]:statusNow(o);}
+function statusNow(o){
   if(!o.started||(LIVE&&o.up&&o.gossip&&o.workerState==='INITIALIZING'))return 'starting';
   if(o.frozen)return 'frozen';
   if(!o.up)return 'stopped';
@@ -790,10 +886,13 @@ function applySnapshot(snap,first){
   for(const name of seenSwarms)if(!names.has(name)&&announce)ev('stopped',`swarm ${name} was stopped`);
   seenSwarms=names;
   nodes=nodes.filter(o=>present.has(o.id));
+  nodeIdx.clear();for(const o of nodes)nodeIdx.set(o.id,o);
   if(!sel||!nodes.includes(sel))sel=nodes[0]||null;
   for(const o of nodes)if(o.gossip)watch(o);
   watchBigSwarms();
   checkConverged(announce);
+  rememberStates(snap);
+  checkBeliefs(announce);
 }
 
 /* actions */
@@ -831,6 +930,8 @@ function setPartition(on){
 /* World layout. Up to 12 servers sit on a ring; larger swarms are packed on a sunflower spiral, which keeps neighbours about
    76 units apart however many there are (100 servers fit in a disc of radius about 420). Swarms sit in a grid of equal cells. */
 const NODE_ROOM=64;
+/* Where the clients of each swarm are drawn when there are any: the corner of its cell, clear of its servers. */
+const clientAt={};
 function layout(){
   const ss=swarms(),S=ss.length,labels=[];
   const specs=ss.map(s=>{
@@ -849,6 +950,7 @@ function layout(){
   specs.forEach((p,si)=>{
     const cx=(si%cols+.5)*cell,cy=Math.floor(si/cols)*cellH+cellH/2+24;
     p.ns.forEach((n,k)=>{const [dx,dy]=p.at(k);n.x=cx+dx;n.y=cy+dy;});
+    const corner=Math.max(p.radius+22,56);clientAt[p.s]={x:cx-corner,y:cy-corner};
     labels.push({s:p.s,x:cx,y:cy-p.radius-NODE_ROOM+8});
   });
   worldBox={x:0,y:0,w:cols*cell,h:rows*cellH};
@@ -866,9 +968,9 @@ function applyView(){
 }
 function fitView(){
   const {w,h}=canvasSize();if(w<10||h<10)return;
-  const pad=40,b=worldBox;
-  const k=Math.max(MINK,Math.min(2.2,Math.min(Math.max(10,w-2*pad)/b.w,Math.max(10,h-2*pad)/b.h)));
-  view.k=k;view.tx=(w-b.w*k)/2-b.x*k;view.ty=(h-b.h*k)/2-b.y*k;
+  const pad=40,b=worldBox,bar=LIVE?$('#tbar').offsetHeight+4:0;
+  const k=Math.max(MINK,Math.min(2.2,Math.min(Math.max(10,w-2*pad)/b.w,Math.max(10,h-bar-2*pad)/b.h)));
+  view.k=k;view.tx=(w-b.w*k)/2-b.x*k;view.ty=bar+(h-bar-b.h*k)/2-b.y*k;
   userView=false;fitDone=true;applyView();
 }
 function zoomAt(factor,cx,cy){
@@ -901,10 +1003,11 @@ function renderGraph(){
   if(layoutKey!==renderGraph.lastKey||!fitDone){renderGraph.lastKey=layoutKey;if(!userView||!fitDone)fitView();}
   if(!nodes.length)under+=`<text x="500" y="300" text-anchor="middle" style="font-size:calc(20px / var(--k,1));fill:var(--ink)">No swarms running</text><text x="500" y="${300+34/view.k}" text-anchor="middle" class="slabel" style="letter-spacing:.02em;text-transform:none;font-size:calc(13px / var(--k,1))">Start one in the harness console, for example: start alpha 3</text>`;
   for(const l of labels){const c=conv(l.s),n=nodes.filter(m=>m.swarm===l.s).length;under+=`<text class="slabel" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}">${esc(l.s)} · ${n} server${n===1?'':'s'}${c===null?'':' · '+Math.round(c*100)+'%'}</text>`;}
-  if(sel&&sel.up&&sel.started){
+  if(sel&&sel.up&&sel.started&&(!LIVE||showRatings)){
     for(const o of nodes){if(o===sel)continue;const e=entryFor(sel.view,o);
       if(e)under+=`<line class="eye ${assess(e)}" x1="${sel.x}" y1="${sel.y}" x2="${o.x}" y2="${o.y}"/>`;}
   }
+  if(LIVE)under+=clientNodes();
   for(const o of nodes){
     const st=state(o),k=know(o),f=k?Math.min(1,k.c/k.n):0,ss=status(o);
     let badge='';
@@ -990,9 +1093,9 @@ function renderPanel(){
   const rows=[...o.view.values()].sort((a,b)=>a.id.localeCompare(b.id)||a.boot.localeCompare(b.boot));
   const empty=noGossip?'The gossip plugin is not loaded on this server, or it is not answering.':'No members known yet';
   const more=o.truncated?'<p class="hint" style="border:0">Showing the first page of members only.</p>':'';
-  setHTML($('#insp-table'),`<table><thead><tr><th>Member</th><th>Rated</th><th class="r">Beat</th><th class="r">Age</th></tr></thead><tbody>${
+  setHTML($('#insp-table'),`<table><thead><tr><th>Member</th><th>Rated</th>${LIVE?'<th class="r" title="This server\'s calls to that member in the last 12 seconds: answered, then failed">Calls</th>':''}<th class="r">Beat</th><th class="r">Age</th></tr></thead><tbody>${
     rows.map(e=>{const a=assess(e),cur=byId(e.id),old=cur&&cur.boot&&cur.boot!==e.boot;
-      return `<tr class="${old?'old':''}"><td class="m">${e.id.split('-Server-')[0].slice(0,1)}·${e.id.slice(-3)} <span class="old">${e.boot.slice(0,4)}${old?' old':''}</span></td><td>${pill(a)}</td><td class="r">${e.hb}</td><td class="r">${e.id===o.id&&e.boot===o.boot?'self':Math.floor((T-e.adv)/1000)+'s'}</td></tr>`;}).join('')||`<tr><td colspan="4" class="old" style="white-space:normal">${empty}</td></tr>`}</tbody></table>${more}`);
+      return `<tr class="${old?'old':''}"><td class="m">${e.id.split('-Server-')[0].slice(0,1)}·${e.id.slice(-3)} <span class="old">${e.boot.slice(0,4)}${old?' old':''}</span></td><td>${pill(a)}</td>${LIVE?`<td class="r m">${callsCell(o,e)}</td>`:''}<td class="r">${e.hb}</td><td class="r">${e.id===o.id&&e.boot===o.boot?'self':Math.floor((T-e.adv)/1000)+'s'}</td></tr>`;}).join('')||`<tr><td colspan="${LIVE?5:4}" class="old" style="white-space:normal">${empty}</td></tr>`}</tbody></table>${more}`);
 }
 function renderLog(){
   if(!logs.length){
@@ -1017,7 +1120,7 @@ function renderAll(){
     banner.hidden=!partition;
     banner.textContent=PARTITION_NOTE;
   }
-  renderGraph();renderSwarms();renderPanel();renderLog();renderActivity();renderControls();renderCommand();
+  renderGraph();renderTraffic();renderSwarms();renderPanel();renderLog();renderActivity();renderControls();renderCommand();
   const cs=$('#canvas-sel');
   cs.hidden=!(focusMode&&sel);
   if(!cs.hidden)setHTML(cs,`<span>${esc(sel.id)}</span>${pill(worker(sel))}`);
@@ -1030,7 +1133,7 @@ const PARTITION_NOTE=$('#banner').textContent;
 /* events */
 /* fromList: chosen from the server list or Find, so bring it into view if it is off the canvas */
 function select(id,fromList){
-  sel=byId(id)||sel;
+  sel=byId(id)||sel;pairFilter=null;
   /* clicking a server shows its socket traffic, unless the Command tab is in use: then the command's target just changes */
   if(LIVE&&(!dockOpen||dockTab==='events')){if(dockTab==='events')dockTab='activity';dockOpen=true;showDock();}
   if(fromList&&sel&&offscreen(sel))centerOn(sel);
@@ -1041,6 +1144,8 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
   const a=b.dataset.act;
   if(a==='select')select(b.dataset.id,true);
+  else if(a==='clear-pair'){pairFilter=null;renderAll();}
+  else if(a==='show-traffic'){dockTab='traffic';showDock();renderAll();}
   else if(LIVE&&sel&&(a==='leave'||a==='stop'||a==='restart'||a==='remove'||a==='freeze'||a==='thaw'))runAction(a,sel);
   else if(a==='leave'&&sel){leave(sel);renderAll();}
   else if(a==='stop'&&sel){stop(sel);renderAll();}
@@ -1259,7 +1364,9 @@ const INFO={
   canvas:()=>'<p><b>Zoom</b> Mouse wheel, the − and + buttons or the − and + keys. Double-click empty canvas to zoom in there.</p><p><b>Pan</b> Drag empty canvas.</p><p><b>Fit</b> Frames every server (key 0). Until you move the view yourself, it refits as servers come and go.</p><p><b>Focus</b> Hides the side panels so the canvas fills the window (key F). Press again to bring them back.</p>',
   actions:()=>'<p><b>Leave gracefully</b> Tells the gossip peers this server is leaving, so they rate it LEFT quickly. It keeps running. Needs gossip.</p><p><b>Stop</b> Closes the server without telling anyone, so its peers rate it SUSPECT and then DEAD. It stays listed.</p><p><b>Restart</b> Starts a stopped server again on the same ports, with a new boot ID.</p><p><b>Remove</b> Takes the server out of the swarm for good. With gossip it announces its departure first. It cannot be restarted.</p><p><b>Freeze</b> Pauses the server as a debugger or a long GC pause would: it keeps its connections but answers and does nothing, so its peers rate it SUSPECT and then DEAD. <b>Thaw</b> lets it carry on where it stopped. Live swarms only.</p>',
   server:()=>'<p><b>Server</b> Everything about the selected server. The two tags under its ID say whether it is running and whether it has been asked to leave. <b>Main / admin</b> are its two ports.</p><p>With gossip: <b>Boot ID</b> identifies this run of the server (a restart gets a new one), <b>Heartbeat</b> is its own beat count, <b>Rounds</b> the gossip rounds it has run, <b>Exchanges received</b> and <b>Failed outbound</b> its gossip traffic, <b>Isolated</b> whether it has no peers, and <b>Sees live peers</b> how many members it rates ALIVE.</p><p>The table lists every member this server knows and how <b>this server</b> rates it (ALIVE, SUSPECT, DEAD, LEFT), with its heartbeat and seconds since news.</p>',
-  activity:()=>'<p><b>Socket activity</b> Every request the selected server receives, one row each, read from its log. In the Conn column, #1234·15 is the 15th request on connection 1234. The numbers above the list count everything since the server started.</p><p><b>Pause feed</b> freezes the list so you can read it, and Resume catches up. Untick <b>Show gossip</b> to hide the constant gossip traffic.</p>'+PANEL_TIP,
+  activity:()=>'<p><b>Socket activity</b> Every request the selected server receives, one row each, read from its log. <b>From</b> names the server that sent it, or clients for a script, the page or a load test; a dash is the harness itself or a call too old to match. In the Conn column, #1234·15 is the 15th request on connection 1234. The numbers above the list count everything since the server started.</p><p><b>Pause feed</b> freezes the list so you can read it, and Resume catches up. Untick <b>Show gossip</b> to hide the constant gossip traffic. Click a line on the canvas to see only the calls along it.</p>'+PANEL_TIP,
+  traffic:()=>'<p><b>Lines</b> Each curved line is one direction of calls: thicker means more of them in the last few seconds, amber or red means some or most failed. Hover over a line for its rate, timings and last call; click it to see those calls in Socket activity.</p><p><b>Dots</b> Each dot is a real call, coloured by kind, and a smaller one is its reply. A hollow dot is waiting for its reply. A red dot was lost, refused or answered with an error, and an amber one timed out. Times are stretched so a call of a few milliseconds can be seen; a slower call still moves more slowly. On a large swarm only so many are drawn, failures first, and the lines show the rest.</p><p><b>Dashed lines</b> are network rules: purple is cut by a partition, amber is slowed or losing requests. A red <b>!</b> means a server’s rating of a peer disagrees with how its calls to it are going.</p><p><b>Clients</b> The box in the corner of a swarm stands for everything outside it. The harness polling its servers is left out.</p><p><b>Replay</b> The page reads the calls twice a second, so it shows them about a second late. <b>Hold</b> stops at this moment, and the slider and speed go back up to a minute, with a tick for each thing done to the swarm; click a tick to play from just before it. Outlines, lines and dots replay; the panels stay on the present.</p>',
+  trafficTab:()=>'<p><b>Traffic</b> Every call between servers and from clients, newest first, up to the moment the replay is showing. Unlike Socket activity it includes calls that never arrived. The filters above the canvas apply here too. Marks in the list are things done to the swarm.</p><p>Anything listed in red at the top is a server whose rating of a peer disagrees with how its calls to that peer are going, which is how a gray failure shows itself.</p>'+PANEL_TIP,
   command:()=>'<p><b>Command</b> Sends one command to the chosen server and shows exactly what came back. Plain text is sent as an echo; JSON is sent as a request. <b>Try</b> fills in an example request (echo, the gossip operations, the key-value operations, or an unknown instruction), the up and down arrows recall earlier commands, and <b>Clear</b> empties the history.</p><p><b>gossip</b> and <b>kv</b> commands only work on servers that loaded those plugins; otherwise the server answers UNKNOWN_INSTRUCTION. <b>kv</b> keeps its pairs in each server\u2019s own memory: a key put on one server is not on the others, and it is gone when the server stops.</p>'+PANEL_TIP,
   events:()=>'<p><b>Events</b> A log of changes this page has noticed: servers starting, stopping or leaving, ratings changing, swarms converging. It starts empty when the page loads.</p>'+PANEL_TIP,
   dock:()=>PANEL_TIP
@@ -1293,18 +1400,20 @@ stage.addEventListener('pointerdown',e=>{
   const g=e.target.closest('.node');
   if(g){select(g.dataset.id);return;}
   if(e.button!==0)return;
-  pan={x:e.clientX,y:e.clientY,tx:view.tx,ty:view.ty,moved:false};
+  const line=e.target.closest('.thit');
+  pan={x:e.clientX,y:e.clientY,tx:view.tx,ty:view.ty,moved:false,link:line?line.dataset.link:null};
   stage.setPointerCapture(e.pointerId);canvas.classList.add('panning');
 });
 stage.addEventListener('pointermove',e=>{
-  if(!pan)return;
+  if(!pan){hoverLink(e);return;}
   const dx=e.clientX-pan.x,dy=e.clientY-pan.y;
   if(!pan.moved&&Math.hypot(dx,dy)<3)return;
   pan.moved=true;userView=true;view.tx=pan.tx+dx;view.ty=pan.ty+dy;applyView();
 });
 const endPan=()=>{pan=null;canvas.classList.remove('panning');};
-stage.addEventListener('pointerup',endPan);
+stage.addEventListener('pointerup',()=>{const was=pan;endPan();if(was&&was.link&&!was.moved)selectLink(was.link);});
 stage.addEventListener('pointercancel',endPan);
+stage.addEventListener('pointerleave',()=>{tipKey=null;renderTip();});
 stage.addEventListener('wheel',e=>{
   e.preventDefault();
   const r=stage.getBoundingClientRect(),unit=e.deltaMode===1?16:1;
@@ -1345,9 +1454,9 @@ $('#find').addEventListener('keydown',e=>{
 /* dock: tabs and collapse */
 function showDock(){
   const live=LIVE;
-  $('#tab-activity').hidden=!live;$('#tab-command').hidden=!live;$('#info-activity').hidden=!live;$('#info-command').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);$('#act-pause').hidden=!(live&&dockTab==='activity'&&dockOpen);
+  $('#tab-activity').hidden=!live;$('#tab-traffic').hidden=!live;$('#tab-command').hidden=!live;$('#info-activity').hidden=!live;$('#info-traffic').hidden=!live;$('#info-command').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);$('#act-pause').hidden=!(live&&dockTab==='activity'&&dockOpen);
   if(!live)dockTab='events';
-  for(const t of['activity','command','events']){
+  for(const t of['activity','traffic','command','events']){
     $('#tab-'+t).setAttribute('aria-selected',dockTab===t);
     $('#pane-'+t).hidden=dockTab!==t;
   }
@@ -1501,11 +1610,14 @@ function renderActivity(){
     :'<div><dt>Status</dt><dd style="font-size:13px">'+(a.error?esc(a.error):'Waiting for the first reply…')+'</dd></div>');
   setHTML($('#act-spark'),`${sparkline(a.samples)}<span>requests/s<br>last minute</span>`);
   const showGossip=$('#act-gossip').checked;
-  const rows=[...a.rows.values()].reverse().filter(r=>showGossip||r.instruction!=='gossip').slice(0,100);
+  const pair=pairFilter&&pairFilter.to===sel.id?pairFilter:null;
+  const rows=[...a.rows.values()].reverse().filter(r=>(showGossip||r.instruction!=='gossip')&&(!pair||TR.byMsg.get(r.messageId)===pair.from)).slice(0,100);
+  const never=pair?TR.calls.filter(c=>c.from===pair.from&&c.to===pair.to&&(c.out==='LOST'||c.out==='REFUSED')).length:0;
+  setHTML($('#act-pair'),pair?`<div class="pair-note"><span>Only calls from <b>${esc(shortId(pair.from))}</b> to <b>${esc(shortId(pair.to))}</b>.${never?` ${never} more never arrived, so only the Traffic tab shows them.`:''}</span><button class="btn small" type="button" data-act="show-traffic" data-key="p-traffic">Traffic</button><button class="btn small" type="button" data-act="clear-pair" data-key="p-clear">Show all</button></div>`:'');
   const note=(feedPaused?'<p class="hint" style="border:0" role="status">Feed paused: nothing new is read until you press Resume feed. Nothing is lost while it is paused, up to the last 300 events of this server.</p>':'')+(a.error?`<p class="hint" style="border:0" role="status">${esc(a.error)}</p>`:'');
-  setHTML($('#act-feed'),`<table><thead><tr><th>Time</th><th>Client</th><th title="Connection number, and which request on that connection this is. A number after the dot above 1 means the connection was reused.">Conn</th><th>Instruction</th><th>Message</th><th>Result</th><th class="r">ms</th></tr></thead><tbody>${
-    rows.map(r=>`<tr class="${r.instruction==='gossip'?'dim':''}"><td class="m">${clock(r.t)}</td><td class="m">${esc(r.client)}</td><td class="m">#${r.conn}${r.nth>1?'·'+r.nth:''}</td><td class="m">${esc(r.instruction||'—')}</td><td class="m" title="${esc(r.messageId)}">${esc(r.messageId.slice(0,8)||'—')}</td><td><span class="pill p-${r.state}" title="${esc(r.detail)}">${r.state.replace('_',' ')}</span></td><td class="r">${r.state==='IN_FLIGHT'||r.state==='CONNECTED'?'':r.end-r.t}</td></tr>`).join('')
-    ||'<tr><td colspan="7" class="old" style="white-space:normal">No connections seen yet. Send something to this server, for example send '+esc(sel.swarm)+' hello.</td></tr>'}</tbody></table>${note}`);
+  setHTML($('#act-feed'),`<table><thead><tr><th>Time</th><th title="The server that sent this request, or clients for a script, the page or a load test. A dash is the harness itself, or a call too old to match.">From</th><th>Client</th><th title="Connection number, and which request on that connection this is. A number after the dot above 1 means the connection was reused.">Conn</th><th>Instruction</th><th>Message</th><th>Result</th><th class="r">ms</th></tr></thead><tbody>${
+    rows.map(r=>`<tr class="${r.instruction==='gossip'?'dim':''}"><td class="m">${clock(r.t)}</td><td class="m">${TR.byMsg.has(r.messageId)?esc(shortId(TR.byMsg.get(r.messageId))):'—'}</td><td class="m">${esc(r.client)}</td><td class="m">#${r.conn}${r.nth>1?'·'+r.nth:''}</td><td class="m">${esc(r.instruction||'—')}</td><td class="m" title="${esc(r.messageId)}">${esc(r.messageId.slice(0,8)||'—')}</td><td><span class="pill p-${r.state}" title="${esc(r.detail)}">${r.state.replace('_',' ')}</span></td><td class="r">${r.state==='IN_FLIGHT'||r.state==='CONNECTED'?'':r.end-r.t}</td></tr>`).join('')
+    ||`<tr><td colspan="8" class="old" style="white-space:normal">${pair?'No calls along this line in the last 300 events of this server.':'No connections seen yet. Send something to this server, for example send '+esc(sel.swarm)+' hello.'}</td></tr>`}</tbody></table>${note}`);
 }
 $('#act-gossip').addEventListener('change',renderActivity);
 $('#act-pause').addEventListener('click',()=>{
@@ -1513,6 +1625,407 @@ $('#act-pause').addEventListener('click',()=>{
   $('#act-pause').textContent=feedPaused?'Resume feed':'Pause feed';$('#act-pause').setAttribute('aria-pressed',feedPaused);
   if(!feedPaused&&LIVE)fetchActivity().then(renderActivity);else renderActivity();
 });
+
+/* live mode: the calls the servers really made, recorded by the harness. The page reads them twice a second and plays them
+   back TR_LAG late, so each is drawn from its start even though it is only known once it has finished. */
+const TR_POLL=500,TR_LAG=1000,TR_KEEP=75000,TR_REWIND=60000,LINK_WINDOW=10000,BELIEF_WINDOW=12000;
+const MAX_LINKS=400,MAX_RULE_LINES=240;
+const TR={available:true,calls:[],pending:[],marks:[],hist:[],byMsg:new Map(),links:new Map(),recent:new Map(),beliefs:new Map(),clientSeen:{},lastSeq:0,offset:0,drawn:0,active:0};
+const trFilter={gossip:true,push:true,compare:true,client:true,other:true};
+try{Object.assign(trFilter,JSON.parse(localStorage.getItem('swarm-traffic-filter')||'{}'));}catch{}
+let playT=0,follow=true,holding=false,playRate=1,scrubbing=false,onlySel=false,showRatings=true,pairFilter=null,tipKey=null,tipX=0,tipY=0;
+const liveNow=()=>Date.now()+TR.offset-TR_LAG;
+const swarmOf=id=>id.replace(/-Server-\d+$/,'');
+const shortId=id=>id.startsWith('clients:')?'clients':id.replace(/^(.*)-Server-(\d+)$/,'$1·$2');
+const callName=c=>c.inst+(c.op?' '+c.op:'');
+const KIND_NAME={gossip:'Gossip',push:'KV push',compare:'KV compare',client:'Client',other:'Other'};
+function callKind(c){
+  if(!c.source)return 'client';
+  if(c.instruction==='gossip')return 'gossip';
+  if(c.instruction==='kv')return /^sync-/.test(c.operation||'')?'compare':'push';
+  return 'other';
+}
+function normCall(c){
+  return{seq:c.seq,from:c.source||'clients:'+swarmOf(c.target),to:c.target,kind:callKind(c),inst:c.instruction||'?',op:c.operation||'',id:c.messageId||'',
+    out:c.outcome||'IN_FLIGHT',detail:c.detail||'',s:c.startMillis,e:c.endMillis===undefined?null:c.endMillis,bytes:c.requestBytes||0};
+}
+async function fetchTraffic(){
+  if(!LIVE||paused)return;
+  const r=await fetch('/api/traffic?after='+TR.lastSeq,{cache:'no-store'});
+  if(!r.ok)return;
+  const j=await r.json();
+  TR.available=j.available!==false;
+  if(!TR.available)return;
+  /* the harness was restarted: nothing recorded so far still applies */
+  if(j.lastSeq<TR.lastSeq){TR.calls=[];TR.marks=[];TR.byMsg.clear();}
+  TR.offset=j.nowMillis-Date.now();
+  for(const raw of j.calls){
+    const c=normCall(raw);TR.calls.push(c);
+    if(c.id)TR.byMsg.set(c.id,c.from);
+    if(c.kind==='client'){const s=swarmOf(c.to);TR.clientSeen[s]=Math.max(TR.clientSeen[s]||0,c.e);}
+  }
+  TR.pending=j.inFlight.map(normCall);
+  for(const c of TR.pending){
+    if(c.id)TR.byMsg.set(c.id,c.from);
+    if(c.kind==='client'){const s=swarmOf(c.to);TR.clientSeen[s]=Math.max(TR.clientSeen[s]||0,c.s);}
+  }
+  for(const m of j.marks)TR.marks.push({t:m.timeMillis,kind:m.kind,text:m.text,seq:m.seq});
+  TR.lastSeq=j.lastSeq;
+  const cut=liveNow()-TR_KEEP;let n=0;
+  while(n<TR.calls.length&&TR.calls[n].e<cut){if(TR.calls[n].id)TR.byMsg.delete(TR.calls[n].id);n++;}
+  if(n)TR.calls.splice(0,n);
+  while(TR.marks.length&&TR.marks[0].t<cut)TR.marks.shift();
+  if(TR.byMsg.size>120000)TR.byMsg.clear();
+}
+async function pollTraffic(){
+  try{await fetchTraffic();}catch{ /* the next poll tries again */ }
+  setTimeout(pollTraffic,TR_POLL);
+}
+/* The states of the servers each time the page read them, so a rewound timeline can draw them as they were. */
+function rememberStates(snap){
+  const st={};for(const o of nodes)st[o.id]=[stateNow(o),statusNow(o)];
+  TR.hist.push({t:Number(snap.takenAtMillis)||Date.now(),st,net:netRules});
+  const cut=liveNow()-TR_KEEP;
+  while(TR.hist.length&&TR.hist[0].t<cut)TR.hist.shift();
+}
+function statesAt(t){
+  for(let i=TR.hist.length-1;i>=0;i--)if(TR.hist[i].t<=t)return TR.hist[i];
+  return null;
+}
+/* Moves the replay on by dt ms of the page's time. */
+function tickPlay(dt){
+  const live=liveNow();
+  if(paused)return;
+  if(follow)playT=live;
+  else{
+    if(!holding&&!scrubbing)playT+=dt*playRate;
+    if(playT>=live)goLive();
+    else if(playT<live-TR_REWIND)playT=live-TR_REWIND;
+  }
+  rewound=follow?null:statesAt(playT);
+}
+function goLive(){
+  follow=true;holding=false;playRate=1;playT=liveNow();rewound=null;
+  $('#tr-speed').value='1';
+}
+function firstEndingAfter(t){
+  const a=TR.calls;let lo=0,hi=a.length;
+  while(lo<hi){const m=(lo+hi)>>1;if(a[m].e<t)lo=m+1;else hi=m;}
+  return lo;
+}
+const pos=id=>id.startsWith('clients:')?clientAt[id.slice(8)]:nodeIdx.get(id);
+/* The curve of one direction between two points: it starts and ends clear of the circles, and bows to its own side, so the
+   two directions between a pair of servers never lie on top of each other. */
+const geoCache=new Map();
+function geo(from,to){
+  const a=pos(from),b=pos(to);
+  if(!a||!b)return null;
+  const key=from+'>'+to;
+  let g=geoCache.get(key);
+  if(g&&g.ax===a.x&&g.ay===a.y&&g.bx===b.x&&g.by===b.y)return g;
+  if(geoCache.size>20000)geoCache.clear();
+  const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1,ux=dx/len,uy=dy/len,nx=-uy,ny=ux;
+  const ra=from.startsWith('clients:')?26:36,rb=36,bow=Math.min(16,len*.06)*2;
+  const x0=a.x+ux*ra,y0=a.y+uy*ra,x1=b.x-ux*rb,y1=b.y-uy*rb,cx=(a.x+b.x)/2+nx*bow,cy=(a.y+b.y)/2+ny*bow;
+  g={ax:a.x,ay:a.y,bx:b.x,by:b.y,x0,y0,cx,cy,x1,y1,d:`M${x0.toFixed(1)} ${y0.toFixed(1)}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x1.toFixed(1)} ${y1.toFixed(1)}`};
+  geoCache.set(key,g);
+  return g;
+}
+const curveX=(g,t)=>(1-t)*(1-t)*g.x0+2*(1-t)*t*g.cx+t*t*g.x1;
+const curveY=(g,t)=>(1-t)*(1-t)*g.y0+2*(1-t)*t*g.cy+t*t*g.y1;
+const touchesSel=c=>!sel||c.from===sel.id||c.to===sel.id;
+/* What each direction has carried in the last ten seconds up to moment now; recent calls weigh most. */
+function computeLinks(now){
+  const m=new Map(),a=TR.calls;
+  const entry=(from,to)=>{
+    const key=from+'>'+to;let l=m.get(key);
+    if(!l){l={key,from,to,w:0,n:0,bad:0,badW:0,waiting:0,durs:[],kinds:{},last:null};m.set(key,l);}
+    return l;
+  };
+  for(let i=firstEndingAfter(now-LINK_WINDOW);i<a.length;i++){
+    const c=a[i];
+    if(c.e>now)break;
+    if(!trFilter[c.kind])continue;
+    const l=entry(c.from,c.to),w=Math.exp(-(now-c.e)/4000);
+    l.w+=w;l.n++;l.durs.push(c.e-c.s);l.kinds[c.kind]=(l.kinds[c.kind]||0)+1;l.last=c;
+    if(c.out!=='OK'){l.bad++;l.badW+=w;}
+  }
+  if(follow)for(const c of TR.pending){
+    if(!trFilter[c.kind]||c.s>now)continue;
+    const l=entry(c.from,c.to);l.waiting++;l.w+=.3;l.kinds[c.kind]=(l.kinds[c.kind]||0)+1;
+  }
+  return m;
+}
+const linkEls=new Map();
+function renderLinks(){
+  const links=computeLinks(playT);TR.links=links;
+  let list=[...links.values()];
+  const key=l=>(l.from===(sel&&sel.id)||l.to===(sel&&sel.id)?1000:0)+l.w;
+  if(list.length>MAX_LINKS)list=list.sort((x,y)=>key(y)-key(x)).slice(0,MAX_LINKS);
+  /* widths are in screen pixels whatever the zoom, so a small swarm zoomed in does not get heavy lines */
+  const layer=$('#g-links'),keep=new Set(),z=view.k,arrowSize=(6/z).toFixed(2),arrow=$('#tarrow');
+  if(arrow.getAttribute('markerWidth')!==arrowSize){arrow.setAttribute('markerWidth',arrowSize);arrow.setAttribute('markerHeight',arrowSize);}
+  for(const l of list){
+    const g=geo(l.from,l.to);
+    if(!g)continue;
+    keep.add(l.key);
+    let e=linkEls.get(l.key);
+    if(!e){
+      const hit=document.createElementNS(NS,'path'),line=document.createElementNS(NS,'path');
+      hit.setAttribute('class','thit');hit.dataset.link=l.key;layer.appendChild(line);layer.appendChild(hit);
+      e={hit,line,d:'',cls:'',sw:0,hw:0,op:0,arrow:false};linkEls.set(l.key,e);
+    }
+    if(e.d!==g.d){e.d=g.d;e.line.setAttribute('d',g.d);e.hit.setAttribute('d',g.d);}
+    const kind=Object.entries(l.kinds).sort((x,y)=>y[1]-x[1])[0][0],share=l.w?l.badW/l.w:0;
+    const mine=sel&&(l.from===sel.id||l.to===sel.id),isPair=pairFilter&&pairFilter.from===l.from&&pairFilter.to===l.to;
+    const cls='tlink tk-'+kind+(share>.5?' bad':share>.05?' shaky':'');
+    if(e.cls!==cls){e.cls=cls;e.line.setAttribute('class',cls);}
+    const sw=+(Math.min(2.5,.75+.6*Math.log2(1+l.w))/z*(isPair?1.4:1)).toFixed(2),hw=+(14/z).toFixed(1);
+    if(e.sw!==sw){e.sw=sw;e.line.setAttribute('stroke-width',sw);}
+    if(e.hw!==hw){e.hw=hw;e.hit.setAttribute('stroke-width',hw);}
+    const op=+((onlySel&&!mine?.07:Math.min(.8,.16+.2*l.w))*(isPair?1.3:1)).toFixed(2);
+    if(e.op!==op){e.op=op;e.line.setAttribute('opacity',Math.min(1,op));}
+    const arrowed=!!(mine||isPair);
+    if(e.arrow!==arrowed){e.arrow=arrowed;if(arrowed)e.line.setAttribute('marker-end','url(#tarrow)');else e.line.removeAttribute('marker-end');}
+  }
+  for(const [k,e] of linkEls)if(!keep.has(k)){e.line.remove();e.hit.remove();linkEls.delete(k);}
+}
+/* A dot's trip: slower calls travel more slowly, on a log scale, because a call of a few milliseconds could not be seen. */
+const travel=d=>Math.min(1500,320+200*Math.log10(1+Math.max(0,d)));
+const dotEls=[];
+function placeDot(i,g,t,cls,r,op){
+  let el=dotEls[i];
+  if(!el){el=document.createElementNS(NS,'circle');$('#g-dots').appendChild(el);dotEls[i]=el;el._c='';}
+  if(el._c!==cls){el._c=cls;el.setAttribute('class',cls);}
+  el.setAttribute('cx',curveX(g,t).toFixed(1));el.setAttribute('cy',curveY(g,t).toFixed(1));el.setAttribute('r',r.toFixed(1));
+  el.setAttribute('opacity',op.toFixed(2));
+  el.style.display='';
+}
+function drawDots(){
+  const now=playT,a=TR.calls,cap=nodes.length>32?80:160,scale=1/Math.max(view.k,.45);
+  /* zoomed far out on a large swarm a healthy call is too small to read, so only trouble is drawn and the lines say the rest */
+  const troubleOnly=nodes.length>32&&view.k<.28;
+  const stacks=new Map();
+  let used=0,active=0;
+  const draw=c=>{
+    const done=c.e!==null,tOut=travel(done?c.e-c.s:0);
+    if(now<c.s)return;
+    const reply=done?Math.max(c.s+tOut,c.e):Infinity,tail=tOut*.7;
+    if(now>=reply+tail)return;
+    if(!trFilter[c.kind]||(onlySel&&!touchesSel(c)))return;
+    active++;
+    if(used>=cap)return;
+    if(c.out==='OK'&&(reduced||troubleOnly))return;
+    const g=geo(c.from,c.to);
+    if(!g)return;
+    let t,cls='tdot tk-'+c.kind,r=4.5,op=1;
+    if(now<c.s+tOut&&now<reply){t=(now-c.s)/tOut;if(c.out==='LOST')t*=.55;}
+    else if(now<reply){
+      /* waiting for a reply: each waits a little behind the last, so a frozen server's callers visibly pile up at its door */
+      const k=c.from+'>'+c.to,n=stacks.get(k)||0;stacks.set(k,n+1);
+      t=Math.max(.5,.93-.05*n);cls+=' wait';
+    }else{
+      const f=(now-reply)/tail;
+      if(c.out==='OK'){t=1-f;cls+=' rep';r=3.2;}
+      else if(c.out==='ERROR_REPLY'){t=1-f;cls+=' fail';r=3.6;}
+      else if(c.out==='LOST'){t=.55;cls+=' fail';op=1-f;}
+      else if(c.out==='REFUSED'){t=1-.25*f;cls+=' fail';op=1-f;}
+      else if(c.out==='TIMEOUT'){t=.93;cls+=' timeout';op=1-f;}
+      else{t=.93;cls+=' fail';op=1-f;}
+    }
+    if(reduced)t=.5;
+    placeDot(used++,g,t,cls,r*scale,Math.max(0,op));
+  };
+  const first=firstEndingAfter(now-2600);
+  /* failed and waiting calls first, as they are what matters when there are too many to draw */
+  if(follow)for(const c of TR.pending)draw(c);
+  for(let i=first;i<a.length;i++){const c=a[i];if(c.e>now+20000)break;if(c.out!=='OK')draw(c);}
+  for(let i=a.length-1;i>=first;i--){const c=a[i];if(c.e>now+20000)continue;if(c.out==='OK')draw(c);}
+  for(let i=used;i<dotEls.length&&dotEls[i].style.display!=='none';i++)dotEls[i].style.display='none';
+  TR.drawn=used;TR.active=active;
+}
+/* Network rules, drawn on the lines they affect. The figures are those the harness applies to a request between the two. */
+function pairRule(a,b,r){
+  if(!r)return null;
+  const sides=r.partition||[],sa=sides.findIndex(s=>s.includes(a)),sb=sides.findIndex(s=>s.includes(b));
+  if(sa>=0&&sb>=0&&sa!==sb)return{cut:true};
+  const dm=r.delayMillis||{},lp=r.lossPercent||{},d=(dm[a]||0)+(dm[b]||0),l=Math.max(lp[a]||0,lp[b]||0);
+  return d||l?{d,l}:null;
+}
+function renderRules(){
+  const r=rewound?rewound.net:netRules;
+  let html='';
+  if(r){
+    const named=new Set([...(r.partition||[]).flat(),...Object.keys(r.delayMillis||{}),...Object.keys(r.lossPercent||{})]);
+    const seen=new Set();let pairs=[];
+    for(const id of named){
+      const o=nodeIdx.get(id);
+      if(!o)continue;
+      for(const m of nodes){
+        if(m===o||m.swarm!==o.swarm)continue;
+        const k=o.id<m.id?o.id+'|'+m.id:m.id+'|'+o.id;
+        if(seen.has(k))continue;
+        seen.add(k);
+        const rule=pairRule(o.id,m.id,r);
+        if(rule)pairs.push({a:o,b:m,rule});
+      }
+    }
+    const labelled=pairs.length<=30;
+    if(pairs.length>MAX_RULE_LINES){
+      const mine=pairs.filter(p=>p.a===sel||p.b===sel),rest=pairs.filter(p=>p.a!==sel&&p.b!==sel),step=Math.ceil(rest.length/Math.max(1,MAX_RULE_LINES-mine.length));
+      pairs=mine.concat(rest.filter((p,i)=>i%step===0));
+    }
+    for(const p of pairs){
+      const cls=p.rule.cut?'cut':'slow';
+      html+=`<line class="rule ${cls}" x1="${p.a.x.toFixed(1)}" y1="${p.a.y.toFixed(1)}" x2="${p.b.x.toFixed(1)}" y2="${p.b.y.toFixed(1)}"/>`;
+      if(labelled||p.a===sel||p.b===sel){
+        const text=p.rule.cut?'✂':[p.rule.d?p.rule.d+' ms':'',p.rule.l?p.rule.l+'%':''].filter(Boolean).join(' · ');
+        html+=`<text class="rulelab ${cls}" x="${((p.a.x+p.b.x)/2).toFixed(1)}" y="${((p.a.y+p.b.y)/2).toFixed(1)}">${esc(text)}</text>`;
+      }
+    }
+  }
+  setHTML($('#g-rules'),html);
+}
+/* Belief against reality: what each server's calls to a peer have done lately, set against how it rates that peer. Gossip can
+   keep a peer ALIVE on another server's word while direct calls fail, and a rating can lag calls that have started working. */
+function checkBeliefs(announce){
+  const now=liveNow(),a=TR.calls,recent=new Map(),found=new Map();
+  for(let i=firstEndingAfter(now-BELIEF_WINDOW);i<a.length;i++){
+    const c=a[i];
+    if(c.kind==='client')continue;
+    const k=c.from+'>'+c.to;let s=recent.get(k);
+    if(!s){s={from:c.from,to:c.to,ok:0,bad:0,lastOk:0};recent.set(k,s);}
+    if(c.out==='OK'){s.ok++;s.lastOk=c.e;}else s.bad++;
+  }
+  TR.recent=recent;
+  for(const [k,s] of recent){
+    const o=nodeIdx.get(s.from),p=nodeIdx.get(s.to);
+    if(!o||!p||!o.gossip||!o.up||o.frozen)continue;
+    const e=entryFor(o.view,p);
+    if(!e)continue;
+    const rating=assess(e),was=TR.beliefs.get(k);
+    let text='';
+    if(rating==='ALIVE'&&s.bad>=3&&s.ok===0)text=`${shortId(s.from)} rates ${shortId(s.to)} ALIVE, but its last ${s.bad} calls to it failed`;
+    else if((rating==='SUSPECT'||rating==='DEAD')&&s.ok>=2&&now-s.lastOk<5000)text=`${shortId(s.from)} rates ${shortId(s.to)} ${rating}, but ${s.ok} calls to it were answered`;
+    if(text)found.set(k,{from:s.from,to:s.to,text,seen:(was?was.seen:0)+1,told:was?was.told:false});
+  }
+  /* a rating takes a moment to catch up, so a disagreement counts once it has lasted two readings */
+  for(const [k,b] of found)if(b.seen>=2&&!b.told){b.told=true;if(announce)ev('suspect',b.text);}
+  for(const [k,b] of TR.beliefs)if(b.told&&!found.has(k)&&announce)ev('recovered',`${shortId(b.from)} and its calls to ${shortId(b.to)} agree again`);
+  TR.beliefs=found;
+}
+function renderFlags(){
+  let html='';
+  if(!rewound)for(const b of TR.beliefs.values()){
+    if(!b.told)continue;
+    const g=geo(b.from,b.to);
+    if(g)html+=`<text class="flag" x="${curveX(g,.5).toFixed(1)}" y="${curveY(g,.5).toFixed(1)}">!</text>`;
+  }
+  setHTML($('#g-flags'),html);
+}
+/* one row of the inspector's member table: this server's own recent calls to that member */
+function callsCell(o,e){
+  const k=o.id+'>'+e.id,s=TR.recent.get(k),b=TR.beliefs.get(k);
+  if(!s)return '<span class="old">—</span>';
+  return `${s.ok}✓${s.bad?' '+s.bad+'✕':''}${b&&b.told?`<span class="callsflag" title="${esc(b.text)}">!</span>`:''}`;
+}
+function clientNodes(){
+  let html='';
+  for(const s of swarms()){
+    const c=clientAt[s],seen=TR.clientSeen[s];
+    if(!c||!seen||playT-seen>30000||seen-playT>30000)continue;
+    html+=`<g class="clientnode" transform="translate(${c.x.toFixed(1)} ${c.y.toFixed(1)})"><rect x="-26" y="-12" width="52" height="24" rx="6"/><text y="3.5">clients</text><title>Requests to ${esc(s)} from outside the swarm: scripts, the page and load tests</title></g>`;
+  }
+  return html;
+}
+function hoverLink(e){
+  const line=e.target.closest&&e.target.closest('.thit');
+  tipKey=line?line.dataset.link:null;tipX=e.clientX;tipY=e.clientY;
+  renderTip();
+}
+function renderTip(){
+  const tip=$('#tip'),l=tipKey&&TR.links.get(tipKey);
+  if(!l){tip.hidden=true;return;}
+  const sorted=[...l.durs].sort((x,y)=>x-y),at=q=>sorted[Math.min(sorted.length-1,Math.floor(sorted.length*q))];
+  const rule=pairRule(l.from,l.to,rewound?rewound.net:netRules),b=TR.beliefs.get(l.key);
+  tip.innerHTML=`<p><b>${esc(shortId(l.from))} → ${esc(shortId(l.to))}</b></p><p>${(l.n/(LINK_WINDOW/1000)).toFixed(1)} calls/s${sorted.length?` · p50 ${at(.5)} ms · p95 ${at(.95)} ms`:''}</p><p>${l.bad} of ${l.n} failed in the last 10 s${l.waiting?` · ${l.waiting} waiting`:''}</p>${l.last?`<p>Last: ${esc(callName(l.last))} · ${esc(l.last.out)}</p>`:''}${rule?`<p>Network rule: ${rule.cut?'cut by a partition':[rule.d?rule.d+' ms delay':'',rule.l?rule.l+'% loss':''].filter(Boolean).join(', ')}</p>`:''}${b&&b.told?`<p style="color:var(--bad)">${esc(b.text)}</p>`:''}`;
+  tip.hidden=false;
+  tip.style.left=Math.min(tipX+14,innerWidth-tip.offsetWidth-8)+'px';
+  tip.style.top=Math.min(tipY+14,innerHeight-tip.offsetHeight-8)+'px';
+}
+/* Clicking a line shows the calls along it in the socket activity of the server they went to. */
+function selectLink(key){
+  const [from,to]=key.split('>');
+  select(to);
+  pairFilter={from,to};dockTab='activity';dockOpen=true;showDock();
+  renderAll();
+}
+function renderTimeline(){
+  const live=liveNow(),back=follow?0:Math.max(0,live-playT),time=$('#tr-time'),scrub=$('#tr-scrub');
+  time.textContent=!TR.available?'This harness is not recording calls':follow?(paused?'Updates paused':'Live · about 1 s behind'):`−${(back/1000).toFixed(1)} s${holding?' · held':playRate!==1?' · '+playRate+'×':''}`;
+  time.classList.toggle('back',!follow);
+  time.title=follow?'The page reads the calls twice a second, so it shows them about a second late':'Outlines, lines and dots show this moment. The panels stay on the present.';
+  if(!scrubbing)scrub.value=String(-Math.round(back));
+  $('#tr-hold').textContent=holding?'Play':'Hold';$('#tr-hold').setAttribute('aria-pressed',holding);
+  $('#tr-live').disabled=follow;
+  setHTML($('#tr-marks'),TR.marks.filter(m=>m.t>=live-TR_REWIND&&m.t<=live).map(m=>{
+    const left=((m.t-(live-TR_REWIND))/TR_REWIND*100).toFixed(1);
+    return `<button class="tr-mark mk-${esc(m.kind)}" type="button" style="left:${left}%" data-mark="${m.t}" data-key="mk-${m.seq}" title="${esc(clock(m.t))} ${esc(m.kind)}: ${esc(m.text)}" aria-label="Replay from ${esc(m.kind)}: ${esc(m.text)}"></button>`;
+  }).join(''));
+  let n=0,bad=0,waiting=0;
+  for(const l of TR.links.values()){n+=l.n;bad+=l.bad;waiting+=l.waiting;}
+  const flagged=[...TR.beliefs.values()].filter(b=>b.told).length;
+  $('#tr-rate').textContent=[(n/(LINK_WINDOW/1000)).toFixed(1)+' calls/s',bad?bad+' failed':'',waiting?waiting+' waiting':'',flagged?flagged+' !':'',TR.active>TR.drawn?`drawing ${TR.drawn} of ${TR.active}`:''].filter(Boolean).join(' · ');
+}
+function renderTrafficPane(){
+  const a=TR.calls,now=playT,pair=pairFilter,rows=[];
+  let n=0,bad=0,waiting=0;
+  for(const l of TR.links.values()){n+=l.n;bad+=l.bad;waiting+=l.waiting;}
+  setHTML($('#tr-stats'),`<div><dt>Calls/s</dt><dd>${(n/(LINK_WINDOW/1000)).toFixed(1)}</dd></div><div><dt>Failed, 10 s</dt><dd>${bad}</dd></div><div><dt>Waiting</dt><dd>${waiting}</dd></div><div><dt>Disagreements</dt><dd>${[...TR.beliefs.values()].filter(b=>b.told).length}</dd></div>`);
+  setHTML($('#tr-pair'),pair?`<div class="pair-note"><span>Only calls from <b>${esc(shortId(pair.from))}</b> to <b>${esc(shortId(pair.to))}</b>.</span><button class="btn small" type="button" data-act="clear-pair" data-key="t-clear">Show all</button></div>`:'');
+  const told=[...TR.beliefs.values()].filter(b=>b.told);
+  setHTML($('#tr-beliefs'),told.length&&!rewound?`<ul class="beliefs">${told.map(b=>`<li>${esc(b.text)}</li>`).join('')}</ul>`:'');
+  const wanted=c=>trFilter[c.kind]&&(!pair||(c.from===pair.from&&c.to===pair.to))&&(!onlySel||touchesSel(c));
+  if(follow)for(const c of TR.pending)if(wanted(c)&&rows.length<100)rows.push(c);
+  let m=TR.marks.length-1;
+  for(let i=a.length-1;i>=0&&rows.length<100;i--){
+    const c=a[i];
+    if(c.e>now||!wanted(c))continue;
+    while(m>=0&&(TR.marks[m].t>now||TR.marks[m].t>=c.e)){if(TR.marks[m].t<=now)rows.push({mark:TR.marks[m]});m--;}
+    rows.push(c);
+  }
+  const row=c=>c.mark
+    ?`<tr class="mark-row"><td>${clock(c.mark.t)}</td><td colspan="7">${esc(c.mark.kind)}: ${esc(c.mark.text)}</td></tr>`
+    :`<tr><td class="m">${clock(c.s)}</td><td class="m">${esc(shortId(c.from))}</td><td class="m">${esc(shortId(c.to))}</td><td class="m"><span class="kdot tk-${c.kind}" title="${esc(KIND_NAME[c.kind])}"></span>${esc(callName(c))}</td><td><span class="pill p-${c.out}" title="${esc(c.detail)}">${c.out.replace('_',' ')}</span></td><td class="r">${c.e===null?'':c.e-c.s}</td><td class="r">${c.bytes||''}</td><td class="m" title="${esc(c.id)}">${esc(c.id.slice(0,8))}</td></tr>`;
+  setHTML($('#tr-feed'),`<table><thead><tr><th>Started</th><th>From</th><th>To</th><th>Call</th><th>Result</th><th class="r">ms</th><th class="r">Bytes</th><th>Message</th></tr></thead><tbody>${rows.map(row).join('')||'<tr><td colspan="8" class="old" style="white-space:normal">No calls to show. Check the filters above the canvas.</td></tr>'}</tbody></table>`);
+}
+function renderTraffic(){
+  if(!LIVE)return;
+  renderLinks();renderRules();renderFlags();renderTip();renderTimeline();
+  if(dockOpen&&dockTab==='traffic')renderTrafficPane();
+}
+function saveTrafficFilter(){try{localStorage.setItem('swarm-traffic-filter',JSON.stringify(trFilter));}catch{}}
+document.querySelectorAll('#tbar [data-kind]').forEach(b=>{
+  b.setAttribute('aria-pressed',trFilter[b.dataset.kind]);
+  b.addEventListener('click',()=>{const k=b.dataset.kind;trFilter[k]=!trFilter[k];b.setAttribute('aria-pressed',trFilter[k]);saveTrafficFilter();renderAll();});
+});
+$('#tr-only').addEventListener('click',()=>{onlySel=!onlySel;$('#tr-only').setAttribute('aria-pressed',onlySel);renderAll();});
+$('#tr-ratings').addEventListener('click',()=>{showRatings=!showRatings;$('#tr-ratings').setAttribute('aria-pressed',showRatings);renderAll();});
+$('#tr-hold').addEventListener('click',()=>{holding=!holding;if(holding)follow=false;renderAll();});
+$('#tr-live').addEventListener('click',()=>{goLive();renderAll();});
+$('#tr-speed').addEventListener('change',e=>{playRate=+e.target.value;if(playRate<1)follow=false;renderAll();});
+const scrubber=$('#tr-scrub');
+scrubber.addEventListener('pointerdown',()=>{scrubbing=true;});
+addEventListener('pointerup',()=>{scrubbing=false;});
+scrubber.addEventListener('input',()=>{
+  const back=+scrubber.value;
+  if(back>=0){goLive();}else{follow=false;playT=liveNow()+back;}
+  renderAll();
+});
+/* a tick is redrawn as time passes, which would lose a click, so it acts as soon as it is pressed; the keyboard still clicks */
+const playFromMark=b=>{follow=false;holding=false;playT=Number(b.dataset.mark)-1500;renderAll();};
+$('#tr-marks').addEventListener('pointerdown',e=>{const b=e.target.closest('[data-mark]');if(b){e.preventDefault();playFromMark(b);}});
+$('#tr-marks').addEventListener('keydown',e=>{const b=e.target.closest('[data-mark]');if(b&&(e.key==='Enter'||e.key===' ')){e.preventDefault();playFromMark(b);}});
 
 /* boot: use the harness that served this page when it answers, otherwise run the simulation */
 const t0=performance.now();
@@ -1539,6 +2052,8 @@ function enterLiveMode(){
   for(const id of['speed','partition','newswarm','addserver'])$('#'+id).hidden=true;
   $('#ctl').hidden=false;
   document.querySelectorAll('.sep,.simonly').forEach(el=>{el.hidden=true;});
+  document.querySelectorAll('.liveonly').forEach(el=>{el.hidden=false;});
+  $('#tbar').hidden=false;document.body.classList.add('live');
   $('#hint').textContent='Ratings are each server’s own gossip view of its peers. Timings come from the gossip settings on each server. Servers without the plugin show only whether they answer.';
   showDock();
 }
@@ -1552,7 +2067,7 @@ function startSimulation(){
 let last=performance.now(),lastR=0;
 function frame(ts){
   const dt=Math.min(ts-last,100);last=ts;
-  if(LIVE)T=ts-t0;else if(!paused)step(dt*speed);
+  if(LIVE){T=ts-t0;tickPlay(dt);drawDots();}else if(!paused)step(dt*speed);
   updatePulses();
   if(ts-lastR>200){lastR=ts;renderAll();}
   requestAnimationFrame(frame);
@@ -1566,6 +2081,7 @@ async function boot(){
       applySnapshot(first,true);lastOk=T;
       setTimeout(poll,1000);
       pollActivity();
+      pollTraffic();
     }catch{ /* not served by the harness: fall through to the simulation */ }
   }
   if(!LIVE)startSimulation();

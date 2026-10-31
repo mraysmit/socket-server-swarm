@@ -45,9 +45,14 @@ public final class SwarmMain {
                 : new SwarmManager(options.pluginDirectories(), options.gossip(), options.kvReplicate());
         var shutdown = shutdownHook(manager);
         Runtime.getRuntime().addShutdownHook(shutdown);
-        try (installed; manager;
+        var calls = options.uiEnabled() ? new CallLog(manager.network()::serverAt).install() : null;
+        if (calls != null) {
+            activity.reportTo(calls);
+            manager.connections().reportSending(calls::harnessRequest);
+        }
+        try (installed; manager; calls;
              var input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
-             var ui = startUi(manager, options, activity)) {
+             var ui = startUi(manager, options, activity, calls)) {
             runConsole(manager, input, new PrintWriter(System.out, true));
         } finally {
             try { Runtime.getRuntime().removeShutdownHook(shutdown); }
@@ -62,10 +67,10 @@ public final class SwarmMain {
     }
 
     /** A busy port must not stop the harness, so the UI is skipped with a message instead. */
-    private static UiServer startUi(SwarmManager manager, Options options, SocketActivity activity) {
+    private static UiServer startUi(SwarmManager manager, Options options, SocketActivity activity, CallLog calls) {
         if (!options.uiEnabled()) { return null; }
         try {
-            var ui = new UiServer(manager, options.uiPort(), activity);
+            var ui = new UiServer(manager, options.uiPort(), activity, calls);
             System.out.println("Swarm UI | http://localhost:" + ui.port() + "/");
             return ui;
         } catch (IOException | RuntimeException e) {

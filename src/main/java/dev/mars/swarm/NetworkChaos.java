@@ -120,7 +120,8 @@ final class NetworkChaos implements NetworkFaults.Policy {
         return sideOfA >= 0 && sideOfB >= 0 && sideOfA != sideOfB;
     }
 
-    private String serverAt(int port) {
+    /** The ID of the server on this main port, or null if there is none. */
+    String serverAt(int port) {
         var id = serverAtPort.get(port);
         if (id == null) {
             refresh();

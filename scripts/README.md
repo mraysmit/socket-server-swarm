@@ -52,7 +52,8 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | `assessments id`, `bootId id`, `rating id, memberId, bootId` | One server's gossip view: how many members it rates ALIVE, SUSPECT, DEAD and so on; the boot ID a server runs under now; how one server rates one boot of another. |
 | `awaitAlive name, n`, `awaitInSync name`, `waitFor what, ms { ... }` | Wait for gossip to agree, for the stores to match, or for any condition. |
 | `check condition, 'what'`, `log 'text'`, `pause ms` | Record a pass or fail, print, wait. |
-| `experiment 'title', [steady: {...}, method: {...}, rollback: {...}]` | A chaos experiment: steady state before and after, rollback always. |
+| `mark 'text'` | Note a step on the page's timeline, so a replay shows what was done when. |
+| `experiment 'title', [steady: {...}, method: {...}, rollback: {...}]` | A chaos experiment: steady state before and after, rollback always. It marks its steps on the timeline itself. |
 
 `alive` means up and still a member: a frozen server, or one that has left gossip, is not counted.
 

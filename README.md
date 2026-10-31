@@ -152,11 +152,18 @@ swarm: every push and every comparison opens a new connection, and a write is pu
 
 The harness also starts an HTTP endpoint on `http://localhost:8088/`. It serves the
 UI page and `GET /api/snapshot`, a JSON view of every swarm and server (ports,
-whether each is alive, and the gossip plugin's replies when the plugin is loaded). It
+whether each is alive, and the gossip plugin's replies when the plugin is loaded), and
+`GET /api/traffic?after=<seq>`, the calls between servers and from clients since then, with those still
+in flight and marks for what was done to the swarm (`POST /api/traffic/mark` adds one). It
 listens on the loopback interface only and rejects other `Host` names.
 Opened from that address, the page shows the live swarms and polls the snapshot
 every second. Opened as a plain file, it runs a simulated swarm instead. Gossip
 ratings appear only for servers that load the gossip plugin.
+
+Calls are told apart by who sent them: the host's `PeerTraffic` observer reports each request a server makes of
+another, and a request a server logs that is neither one of those nor one of the harness's polls came from a client.
+The page replays them about a second late, with filters, network rules and disagreements with gossip ratings drawn on
+the lines, and a minute of rewind; see [Watch the calls](docs/user-guide.md#watch-the-calls).
 
 The page fills the browser window. The server canvas takes all the space left by the
 side panels and a dock underneath it, and is built for swarms of up to 100 servers:

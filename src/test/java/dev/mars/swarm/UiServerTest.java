@@ -1,5 +1,6 @@
 package dev.mars.swarm;
 
+import dev.mars.client.KeepAliveClient;
 import dev.mars.protocol.Json;
 import dev.mars.server.ServerInstance;
 import org.junit.jupiter.api.Test;
@@ -8,6 +9,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
@@ -16,7 +18,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -401,6 +405,81 @@ class UiServerTest {
             }
             starting.get(30, java.util.concurrent.TimeUnit.SECONDS);
             assertEquals(2, Json.read(get(ui, "/api/snapshot").body()).get("swarms").get(0).get("servers").size());
+        }
+    }
+
+    @Test
+    void trafficShowsCallsBetweenServersAndFromClientsButNotTheHarnessPollingThem() throws Exception {
+        var recorder = new SocketActivity();
+        try (var ignored = recorder.install(); var manager = new SwarmManager();
+             var calls = new CallLog(manager.network()::serverAt).install(); var ui = new UiServer(manager, 0, recorder, calls)) {
+            recorder.reportTo(calls);
+            manager.connections().reportSending(calls::harnessRequest);
+            var endpoints = manager.start("tr", 2);
+            assertEquals(200, get(ui, "/api/snapshot").statusCode(), "The harness polling its servers is not traffic");
+            assertEquals("OK", manager.command("tr-Server-001", "from a client").get("status"));
+            var settings = KeepAliveClient.Settings.of("Test", 65_536, Duration.ofSeconds(5), Duration.ofSeconds(10), Duration.ofSeconds(15));
+            try (var peer = new KeepAliveClient(settings, KeepAliveClient.Listener.NONE, Socket::new, "tr-Server-001")) {
+                peer.execute(new InetSocketAddress("127.0.0.1", endpoints.get(1).port()), "echo", Map.of("text", "from a peer"));
+            }
+            // A server logs a reply only after sending it, so its line may still be on its way.
+            var seen = new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>();
+            for (int tries = 0; tries < 500 && seen.size() < 2; tries++) {
+                seen.clear();
+                Json.read(get(ui, "/api/traffic").body()).get("calls").forEach(seen::add);
+                if (seen.size() < 2) { Thread.sleep(10); }
+            }
+            assertEquals(2, seen.size(), seen.toString());
+            var client = seen.stream().filter(call -> call.get("source").isNull()).findFirst().orElseThrow();
+            assertEquals("tr-Server-001", client.get("target").asText());
+            assertEquals("echo", client.get("instruction").asText());
+            assertEquals("OK", client.get("outcome").asText());
+            var between = seen.stream().filter(call -> !call.get("source").isNull()).findFirst().orElseThrow();
+            assertEquals("tr-Server-001", between.get("source").asText());
+            assertEquals("tr-Server-002", between.get("target").asText());
+            assertEquals("OK", between.get("outcome").asText());
+
+            var read = Json.read(get(ui, "/api/traffic?after=" + between.get("seq").asLong()).body());
+            assertEquals(between.get("seq").asLong() < client.get("seq").asLong() ? 1 : 0, read.get("calls").size());
+            assertTrue(read.get("nowMillis").asLong() > 0);
+            assertEquals(0, read.get("inFlight").size());
+        }
+    }
+
+    @Test
+    void whatIsDoneThroughThePageAndWhatScriptsNoteIsMarkedForTheTimeline() throws Exception {
+        try (var manager = new SwarmManager(); var calls = new CallLog(manager.network()::serverAt); var ui = new UiServer(manager, 0, null, calls)) {
+            assertEquals(200, postJson(ui, "/api/swarms", "{\"name\":\"mk\",\"servers\":2}").statusCode());
+            assertEquals(200, postJson(ui, "/api/servers/mk-Server-002/freeze", "").statusCode());
+            assertEquals(200, postJson(ui, "/api/servers/mk-Server-002/thaw", "").statusCode());
+            assertEquals(200, postJson(ui, "/api/network/delay", "{\"servers\":[\"mk-Server-001\"],\"millis\":50}").statusCode());
+            assertEquals(200, postJson(ui, "/api/network/heal", "").statusCode());
+            assertEquals(200, postJson(ui, "/api/traffic/mark", "{\"text\":\"breaking it\"}").statusCode());
+            var kinds = new java.util.ArrayList<String>();
+            var texts = new java.util.ArrayList<String>();
+            for (var mark : Json.read(get(ui, "/api/traffic").body()).get("marks")) {
+                kinds.add(mark.get("kind").asText());
+                texts.add(mark.get("text").asText());
+            }
+            assertEquals(List.of("start", "freeze", "thaw", "network", "network", "step"), kinds);
+            assertEquals("mk-Server-002", texts.get(1));
+            assertEquals("breaking it", texts.get(5));
+            assertTrue(texts.get(3).contains("mk-Server-001") && texts.get(3).contains("delay"), texts.get(3));
+
+            assertEquals(400, postJson(ui, "/api/traffic/mark", "{}").statusCode(), "No text");
+            assertEquals(404, postJson(ui, "/api/traffic/other", "{\"text\":\"x\"}").statusCode());
+            assertEquals(404, get(ui, "/api/traffic/other").statusCode());
+            var foreign = HttpRequest.newBuilder(uri(ui, "/api/traffic/mark")).header("Origin", "https://evil.example")
+                    .header(UiServer.ACTION_HEADER, "1").POST(HttpRequest.BodyPublishers.ofString("{\"text\":\"x\"}")).build();
+            assertEquals(403, http.send(foreign, HttpResponse.BodyHandlers.ofString()).statusCode());
+        }
+    }
+
+    @Test
+    void trafficSaysSoWhenNothingIsRecordingIt() throws Exception {
+        try (var manager = new SwarmManager(); var ui = new UiServer(manager, 0)) {
+            assertFalse(Json.read(get(ui, "/api/traffic").body()).get("available").asBoolean());
+            assertEquals(200, postJson(ui, "/api/traffic/mark", "{\"text\":\"goes nowhere\"}").statusCode());
         }
     }
 

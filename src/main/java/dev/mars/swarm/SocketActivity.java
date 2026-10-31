@@ -39,6 +39,11 @@ public final class SocketActivity {
         @Override protected boolean removeEldestEntry(Map.Entry<String, PerServer> eldest) { return size() > MAX_SERVERS; }
     };
 
+    private volatile CallLog calls;
+
+    /** From now on, also tells {@code calls} of each request a server logs, so it can pick out the clients' requests. */
+    public void reportTo(CallLog calls) { this.calls = calls; }
+
     /** Reads one log line; lines that are not about a server's socket are ignored. */
     public void accept(String line) { accept(line, System.currentTimeMillis()); }
 
@@ -73,6 +78,14 @@ public final class SocketActivity {
                 fields.get("client"), fields.getOrDefault("messageId", "-").equals("-") ? null : fields.get("messageId"), detail);
         server.events.addLast(event);
         if (server.events.size() > EVENTS_PER_SERVER) { server.events.removeFirst(); }
+        var log = calls;
+        if (log != null) {
+            switch (kind) {
+                case "REQUEST" -> log.serverRequest(serverId, event.messageId(), instruction, now);
+                case "REPLY", "ABORTED" -> log.serverFinished(serverId, event.messageId(), status, detail, now);
+                default -> { }
+            }
+        }
     }
 
     /** Drops everything recorded for a server that has been removed, so a server added later with the same ID starts clean. */
