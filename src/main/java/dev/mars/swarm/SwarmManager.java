@@ -71,6 +71,15 @@ public final class SwarmManager implements AutoCloseable {
     /** The network between this harness's servers: partitions, delay and loss, for chaos experiments. */
     NetworkChaos network() { return network; }
 
+    public static final int MAX_RAFT_SERVERS = 9;
+
+    /** Stub: replaced once the tests have been seen to fail. */
+    public synchronized List<ServerEndpoint> startRaft(String name, int count) throws IOException { return start(name, count); }
+
+    public boolean isRaft(String swarm) { return false; }
+
+    RaftConfigFile raftFile() { return null; }
+
     public synchronized List<ServerEndpoint> start(String name, int count) throws IOException {
         ensureOpen();
         if (name == null || !name.matches("[A-Za-z][A-Za-z0-9._-]*")) {
