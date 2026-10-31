@@ -184,7 +184,8 @@ side panels and a dock underneath it, and is built for swarms of up to 100 serve
   Double-click the bar to reset. Expand makes the panel as tall as the window allows, leaving a strip of
   canvas, and Restore puts it back. Hide collapses it. The browser remembers the height.
 - **Layout:** up to 12 servers per swarm sit on a ring; larger swarms are packed on a spiral so
-  100 servers fit in a compact disc.
+  100 servers fit in a compact disc. No two servers of a swarm sit closer than a set distance, about twice a
+  server's width centre to centre, which leaves room for the lines and dots between them.
 
 **Testing with 100 servers (Windows).** Each closed TCP connection sits in TIME_WAIT for two minutes, and
 Windows has 16,384 dynamic ports by default, so opening more than roughly 130 connections a second runs the

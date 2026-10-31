@@ -928,8 +928,13 @@ function setPartition(on){
 
 /* layout and render */
 /* World layout. Up to 12 servers sit on a ring; larger swarms are packed on a sunflower spiral, which keeps neighbours about
-   76 units apart however many there are (100 servers fit in a disc of radius about 420). Swarms sit in a grid of equal cells. */
+   the same distance apart however many there are (100 servers fit in a disc of radius about 800). Swarms sit in a grid of equal cells. */
 const NODE_ROOM=64;
+/* No two servers of a swarm are closer than this, centre to centre. A server's circle is 66 across, so this leaves 64 for the
+   lines and dots between them and clears the plugin tags under a circle. */
+const NODE_SPACING=130;
+/* The closest two points of the spiral below, for a unit spacing, at any size up to 100 servers. */
+const SPIRAL_CLOSEST=1.64;
 /* Where the clients of each swarm are drawn when there are any: the corner of its cell, clear of its servers. */
 const clientAt={};
 function layout(){
@@ -938,11 +943,11 @@ function layout(){
     const ns=nodes.filter(n=>n.swarm===s),m=ns.length;
     if(m<=1)return{s,ns,radius:0,at:()=>[0,0]};
     if(m<=12){
-      const radius=m===2?70:Math.max(90,m*74/(2*Math.PI));
+      const radius=NODE_SPACING/(2*Math.sin(Math.PI/m));
       return{s,ns,radius,at:k=>{const a=-Math.PI/2+2*Math.PI*k/m;return[radius*Math.cos(a),radius*Math.sin(a)];}};
     }
-    const a=42;
-    return{s,ns,radius:a*Math.sqrt(m),at:k=>{const r=a*Math.sqrt(k+.5),t=k*2.399963;return[r*Math.cos(t),r*Math.sin(t)];}};
+    const a=NODE_SPACING/SPIRAL_CLOSEST;
+    return{s,ns,radius:a*Math.sqrt(m+.5),at:k=>{const r=a*Math.sqrt(k+1.5),t=k*2.399963;return[r*Math.cos(t),r*Math.sin(t)];}};
   });
   if(!S){worldBox={x:0,y:0,w:1000,h:640};return labels;}
   const cols=S<=2?S:Math.ceil(Math.sqrt(S)),rows=Math.ceil(S/cols);

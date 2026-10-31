@@ -89,7 +89,10 @@ public final class SwarmManager implements AutoCloseable {
                 if (gossipFile == null) { gossipFile = new GossipConfigFile(gossip); }
                 gossipFile.declare(name, count);
             }
-            try (var starters = Executors.newVirtualThreadPerTaskExecutor()) {
+            // Platform threads, because starting a server initializes its plugin's classes. A virtual thread in a class initializer
+            // cannot give up its carrier, so with more of them than carriers all waiting on a lock on the plugin's jar, the thread
+            // holding that lock never gets a carrier to run on, and the whole harness stops.
+            try (var starters = Executors.newThreadPerTaskExecutor(Thread.ofPlatform().daemon().factory())) {
                 var futures = new ArrayList<Future<ServerInstance>>();
                 int next = 1;
                 if (gossip != null) {
