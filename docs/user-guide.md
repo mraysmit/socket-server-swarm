@@ -86,6 +86,8 @@ The page polls every second, or every 3 seconds once a swarm is larger than 32 s
 - **Zoom and pan:** mouse wheel or `+` and `-` to zoom, drag the empty canvas to pan, `0` or the Fit
   button to frame everything, `F` or Focus to hide the side panels. The Find box selects a server by
   part of its ID, for example `50`.
+- **Spacing:** the slider beside the zoom buttons, or `[` and `]`, sets how far apart the servers of a swarm sit. Double-click
+  the slider to reset it. Until you move the view yourself, the canvas refits as you change it.
 
 ### Watch the calls
 

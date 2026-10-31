@@ -97,10 +97,12 @@ svg{display:block}
 .zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px}
 .zoom .btn{padding:4px 10px;min-width:34px}
 .zoom .pct{font-family:var(--mono);font-size:12px;min-width:48px;text-align:center;color:var(--mute);font-variant-numeric:tabular-nums}
+.zoom .spacing{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute);margin-right:4px}
+.zoom .spacing input{width:96px;margin:0;accent-color:var(--accent)}
 .canvas-sel{position:absolute;left:12px;top:12px;display:flex;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-family:var(--mono);font-size:13px}
 .node{cursor:pointer;outline:none}
 .node .body{fill:var(--panel);stroke-width:max(3px,calc(2.5px / var(--k,1)))}
-svg[data-lod="mid"] .nid,svg[data-lod="low"] .nid{display:none}
+svg[data-lod="low"] .nid{display:none}
 svg[data-lod="low"] .arcbg,svg[data-lod="low"] .arc{display:none}
 .focus .app{grid-template-columns:minmax(0,1fr)}
 .focus .app>aside{display:none}
@@ -134,7 +136,7 @@ svg[data-lod="mid"] .slab,svg[data-lod="low"] .slab,svg[data-lod="low"] .plug,sv
 .chip.s-frozen .dot{border-color:var(--ice);background:var(--ice-soft)} .chip.s-partitioned .dot{border-color:var(--cut)}
 .chip.s-suspect .dot,.chip.s-degraded .dot{border-color:var(--warn)} .chip.s-recovering .dot{border-color:var(--ok);border-style:dashed}
 .p-FROZEN{color:var(--ice)} .p-PARTITIONED{color:var(--cut)} .p-RECOVERING{color:var(--ok)} .p-DEGRADED{color:var(--warn)}
-.nid{font-family:var(--mono);font-size:14px;font-weight:500;fill:var(--ink);text-anchor:middle}
+.nid{font-family:var(--mono);font-size:max(14px,calc(9px / var(--k,1)));font-weight:500;fill:var(--ink);text-anchor:middle}
 .arcbg{fill:none;stroke:var(--soft);stroke-width:max(4px,calc(2px / var(--k,1)))}
 .arc{fill:none;stroke:var(--accent);stroke-width:max(4px,calc(2px / var(--k,1)));stroke-linecap:butt}
 .selring{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-dasharray:3 3;display:none}
@@ -469,6 +471,7 @@ body{margin:0}
         </div>
         <div class="canvas-sel" id="canvas-sel" hidden></div>
         <div class="zoom" role="group" aria-label="Zoom">
+          <label class="spacing" title="The least distance between two servers of a swarm. Keys [ and ] change it too; double-click to reset.">Spacing<input id="zspace" type="range" min="90" max="500" step="10" value="200"></label>
           <button class="btn" id="zout" title="Zoom out (−)" aria-label="Zoom out">−</button>
           <span class="pct" id="zpct" aria-live="off">100%</span>
           <button class="btn" id="zin" title="Zoom in (+)" aria-label="Zoom in">+</button>
@@ -928,11 +931,13 @@ function setPartition(on){
 
 /* layout and render */
 /* World layout. Up to 12 servers sit on a ring; larger swarms are packed on a sunflower spiral, which keeps neighbours about
-   the same distance apart however many there are (100 servers fit in a disc of radius about 800). Swarms sit in a grid of equal cells. */
+   the same distance apart however many there are (100 servers fit in a disc of radius about 1200). Swarms sit in a grid of equal cells. */
 const NODE_ROOM=64;
-/* No two servers of a swarm are closer than this, centre to centre. A server's circle is 66 across, so this leaves 64 for the
-   lines and dots between them and clears the plugin tags under a circle. */
-const NODE_SPACING=130;
+/* No two servers of a swarm are closer than this, centre to centre; the Spacing slider sets it. A server's circle is 66 across, so
+   the default leaves a clear gap of twice that for the lines and dots between them. */
+const MIN_SPACING=90,MAX_SPACING=500,DEFAULT_SPACING=200;
+let nodeSpacing=DEFAULT_SPACING;
+try{const saved=Number(localStorage.getItem('swarm-node-spacing'));if(saved>=MIN_SPACING&&saved<=MAX_SPACING)nodeSpacing=saved;}catch{}
 /* The closest two points of the spiral below, for a unit spacing, at any size up to 100 servers. */
 const SPIRAL_CLOSEST=1.64;
 /* Where the clients of each swarm are drawn when there are any: the corner of its cell, clear of its servers. */
@@ -943,10 +948,10 @@ function layout(){
     const ns=nodes.filter(n=>n.swarm===s),m=ns.length;
     if(m<=1)return{s,ns,radius:0,at:()=>[0,0]};
     if(m<=12){
-      const radius=NODE_SPACING/(2*Math.sin(Math.PI/m));
+      const radius=nodeSpacing/(2*Math.sin(Math.PI/m));
       return{s,ns,radius,at:k=>{const a=-Math.PI/2+2*Math.PI*k/m;return[radius*Math.cos(a),radius*Math.sin(a)];}};
     }
-    const a=NODE_SPACING/SPIRAL_CLOSEST;
+    const a=nodeSpacing/SPIRAL_CLOSEST;
     return{s,ns,radius:a*Math.sqrt(m+.5),at:k=>{const r=a*Math.sqrt(k+1.5),t=k*2.399963;return[r*Math.cos(t),r*Math.sin(t)];}};
   });
   if(!S){worldBox={x:0,y:0,w:1000,h:640};return labels;}
@@ -1004,7 +1009,7 @@ function setHTML(el,html){
 const C=2*Math.PI*33;
 function renderGraph(){
   const labels=layout();let under='',top='';
-  const layoutKey=swarms().map(s=>s+':'+nodes.filter(n=>n.swarm===s).length).join(',');
+  const layoutKey=nodeSpacing+'|'+swarms().map(s=>s+':'+nodes.filter(n=>n.swarm===s).length).join(',');
   if(layoutKey!==renderGraph.lastKey||!fitDone){renderGraph.lastKey=layoutKey;if(!userView||!fitDone)fitView();}
   if(!nodes.length)under+=`<text x="500" y="300" text-anchor="middle" style="font-size:calc(20px / var(--k,1));fill:var(--ink)">No swarms running</text><text x="500" y="${300+34/view.k}" text-anchor="middle" class="slabel" style="letter-spacing:.02em;text-transform:none;font-size:calc(13px / var(--k,1))">Start one in the harness console, for example: start alpha 3</text>`;
   for(const l of labels){const c=conv(l.s),n=nodes.filter(m=>m.swarm===l.s).length;under+=`<text class="slabel" x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}">${esc(l.s)} · ${n} server${n===1?'':'s'}${c===null?'':' · '+Math.round(c*100)+'%'}</text>`;}
@@ -1366,7 +1371,7 @@ const INFO={
   partition:()=>'<p><b>Partition</b> Splits every swarm into two halves that cannot exchange messages (marked A and B), so you can watch suspicion rise and then views converge again when you lift it. Simulation only: a live swarm is never partitioned.</p>',
   newswarm:()=>'<p><b>New swarm</b> Adds another simulated swarm. To start real servers, open the page from the harness (http://localhost:8088/) and use <b>Start a swarm</b>.</p>',
   addserver:()=>'<p><b>Add server</b> Adds one more simulated server to the selected swarm.</p>',
-  canvas:()=>'<p><b>Zoom</b> Mouse wheel, the − and + buttons or the − and + keys. Double-click empty canvas to zoom in there.</p><p><b>Pan</b> Drag empty canvas.</p><p><b>Fit</b> Frames every server (key 0). Until you move the view yourself, it refits as servers come and go.</p><p><b>Focus</b> Hides the side panels so the canvas fills the window (key F). Press again to bring them back.</p>',
+  canvas:()=>'<p><b>Spacing</b> How far apart the servers of a swarm sit, at least. Drag the slider or press [ and ]; double-click it to go back to the default. The browser remembers it.</p><p><b>Zoom</b> Mouse wheel, the − and + buttons or the − and + keys. Double-click empty canvas to zoom in there.</p><p><b>Pan</b> Drag empty canvas.</p><p><b>Fit</b> Frames every server (key 0). Until you move the view yourself, it refits as servers come and go.</p><p><b>Focus</b> Hides the side panels so the canvas fills the window (key F). Press again to bring them back.</p>',
   actions:()=>'<p><b>Leave gracefully</b> Tells the gossip peers this server is leaving, so they rate it LEFT quickly. It keeps running. Needs gossip.</p><p><b>Stop</b> Closes the server without telling anyone, so its peers rate it SUSPECT and then DEAD. It stays listed.</p><p><b>Restart</b> Starts a stopped server again on the same ports, with a new boot ID.</p><p><b>Remove</b> Takes the server out of the swarm for good. With gossip it announces its departure first. It cannot be restarted.</p><p><b>Freeze</b> Pauses the server as a debugger or a long GC pause would: it keeps its connections but answers and does nothing, so its peers rate it SUSPECT and then DEAD. <b>Thaw</b> lets it carry on where it stopped. Live swarms only.</p>',
   server:()=>'<p><b>Server</b> Everything about the selected server. The two tags under its ID say whether it is running and whether it has been asked to leave. <b>Main / admin</b> are its two ports.</p><p>With gossip: <b>Boot ID</b> identifies this run of the server (a restart gets a new one), <b>Heartbeat</b> is its own beat count, <b>Rounds</b> the gossip rounds it has run, <b>Exchanges received</b> and <b>Failed outbound</b> its gossip traffic, <b>Isolated</b> whether it has no peers, and <b>Sees live peers</b> how many members it rates ALIVE.</p><p>The table lists every member this server knows and how <b>this server</b> rates it (ALIVE, SUSPECT, DEAD, LEFT), with its heartbeat and seconds since news.</p>',
   activity:()=>'<p><b>Socket activity</b> Every request the selected server receives, one row each, read from its log. <b>From</b> names the server that sent it, or clients for a script, the page or a load test; a dash is the harness itself or a call too old to match. In the Conn column, #1234·15 is the 15th request on connection 1234. The numbers above the list count everything since the server started.</p><p><b>Pause feed</b> freezes the list so you can read it, and Resume catches up. Untick <b>Show gossip</b> to hide the constant gossip traffic. Click a line on the canvas to see only the calls along it.</p>'+PANEL_TIP,
@@ -1432,6 +1437,16 @@ stage.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const g=e.
 $('#zin').addEventListener('click',()=>zoomCentre(1.25));
 $('#zout').addEventListener('click',()=>zoomCentre(1/1.25));
 $('#zfit').addEventListener('click',fitView);
+/* Spacing re-lays the servers out at once; until the user has framed the view, it refits to keep them all on the canvas. */
+function setSpacing(value){
+  nodeSpacing=Math.min(MAX_SPACING,Math.max(MIN_SPACING,value));
+  $('#zspace').value=String(nodeSpacing);
+  try{localStorage.setItem('swarm-node-spacing',String(nodeSpacing));}catch{}
+  renderAll();
+}
+$('#zspace').value=String(nodeSpacing);
+$('#zspace').addEventListener('input',e=>setSpacing(Number(e.target.value)));
+$('#zspace').addEventListener('dblclick',()=>setSpacing(DEFAULT_SPACING));
 function setFocus(on){
   focusMode=on;document.body.classList.toggle('focus',on);
   $('#zfocus').setAttribute('aria-pressed',on);
@@ -1444,6 +1459,8 @@ document.addEventListener('keydown',e=>{
   if(e.key==='+'||e.key==='='){zoomCentre(1.25);e.preventDefault();}
   else if(e.key==='-'||e.key==='_'){zoomCentre(1/1.25);e.preventDefault();}
   else if(e.key==='0'){fitView();e.preventDefault();}
+  else if(e.key==='['){setSpacing(nodeSpacing-20);e.preventDefault();}
+  else if(e.key===']'){setSpacing(nodeSpacing+20);e.preventDefault();}
   else if(e.key==='f'||e.key==='F'){setFocus(!focusMode);e.preventDefault();}
 });
 new ResizeObserver(()=>{if(!fitDone)return;if(userView)applyView();else fitView();}).observe(canvas);
