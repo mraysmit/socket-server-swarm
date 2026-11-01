@@ -11,7 +11,7 @@ The suite is JUnit 5 classes under `dev.mars.swarm`, which start real servers on
 - **ConnectionPoolTest** covers the harness's pool of kept-open connections to the servers.
 - **SwarmGossipTest** covers the generated gossip config and, with the real gossip plugin, convergence, failure detection, graceful leave, restart, swarm isolation, echo traffic, and the console path. The plugin tests skip themselves if the plugin JAR is not built.
 - **CallLogTest** covers the log of calls the page replays: who called whom and how it ended, told apart from clients and the harness's own polls.
-- **SwarmRaftTest** covers Raft swarms with the real plugin, loaded as the harness loads it: bootstrap, the size limit and fixed voters, the snapshot, a stopped, partitioned or frozen leader, restarting every server, kv staying local on a Raft swarm, and cleaning up. It skips itself if the plugin JAR is not built.
+- **SwarmRaftTest** covers Raft swarms with the real plugin, loaded as the harness loads it: bootstrap, the size limit and fixed voters, the snapshot, a stopped, partitioned or frozen leader, restarting every server, kv staying local on a Raft swarm, and cleaning up. With the real kv plugin it covers commands applied on every server, reads through the leader, data returning after every server restarts, the four combinations of Raft with gossip and kv, and a plugin held back and activated late. It skips itself if the plugin JAR is not built.
 - **junit-platform.properties** sets a 60 s default timeout and runs timed tests on a separate thread, so a hung test fails instead of stalling the build.
 
 ## Test inventory

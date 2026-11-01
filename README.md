@@ -150,24 +150,28 @@ swarm: every push and every comparison opens a new connection, and a write is pu
 
 ## Raft
 
-With the Raft plugin loaded, a swarm can be a Raft cluster: a replicated log with an elected leader, needing neither gossip nor kv. Build it with
-`mvn -f ../socket-server-threadpool/plugins/raft-plugin/pom.xml package`, which puts the jars it needs beside its own, then:
+With the Raft plugin loaded, a swarm can be a Raft cluster: a replicated log with an elected leader, needing neither gossip nor kv. With kv loaded as well, it is a strongly
+consistent key-value store. Build the plugins with `mvn -f ../socket-server-threadpool/plugins/raft-plugin/pom.xml package`, which puts the jars it needs beside its own, and the
+same for `kv-plugin`, then:
 
 ```powershell
-mvn compile exec:java "-Dexec.args=--plugins-dir ../socket-server-threadpool/plugins/raft-plugin/target"
+mvn compile exec:java "-Dexec.args=--plugins-dir ../socket-server-threadpool/plugins/kv-plugin/target --plugins-dir ../socket-server-threadpool/plugins/raft-plugin/target"
 ```
 
 `start consensus 5 raft` starts five servers and tells each who the others are. A server not started this way stays idle, however many plugins are loaded. In the page, Raft's
-calls appear under Other for now. A command goes to the leader, and a follower answers with where to find it:
+calls appear under Other for now. A write goes to the leader, and a follower answers with where to find it:
 
 ```text
-call consensus-Server-001 {"instruction":"raft","parameters":{"operation":"propose","command":{"instruction":"anything"}}}
+call consensus-Server-001 {"instruction":"raft","parameters":{"operation":"propose","command":{"instruction":"kv","parameters":{"operation":"put","key":"colour","value":"blue"}}}}
+call consensus-Server-001 {"instruction":"raft","parameters":{"operation":"read","command":{"instruction":"kv","parameters":{"operation":"get","key":"colour"}}}}
 ```
 
-The answer's `status` is `COMMITTED`, `NOT_LEADER`, `REFUSED`, or `OUTCOME_UNKNOWN`, which means it may yet commit, so read before retrying. `status` shows a server's role, term,
-leader and how far it has committed, and `log` with `from` and `limit` shows its entries. Nothing is applied to anything yet: this is the third phase of the plugin project's
-`docs/RAFT_PLUGIN_PLAN.md`. A Raft swarm's servers keep their logs in a directory the harness owns, through restarts, until the swarm is stopped, and its voters are fixed, so it
-refuses Add and Remove.
+Answers and settings are in the plugin project's `docs/RAFT_PLUGIN.md`, and what is still to come in its `docs/RAFT_PLUGIN_PLAN.md`. A Raft swarm's servers keep their logs in a
+directory the harness owns, through restarts, until the swarm is stopped, and its voters are fixed, so it refuses Add and Remove. With `--kv-replicate`, kv's replication is off on
+a Raft swarm's servers, so other swarms in the same harness can keep it on.
+
+`POST /api/swarms` with `"mode":"raft","without":"kv"` starts a Raft swarm without that plugin, so commands for it commit and wait, and `POST /api/servers/<id>/restart-with-all-plugins`
+then activates it on one server. The console has no command for this.
 
 ## Swarm UI
 

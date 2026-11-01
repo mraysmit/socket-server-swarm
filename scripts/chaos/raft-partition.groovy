@@ -25,7 +25,7 @@ try {
             partition smaller, larger
             long commitBefore = raftStatus(old).commitIndex as long
             String lost = key('never-commits')
-            Map refused = propose(old, [instruction: 'note', parameters: [note: lost]])
+            Map refused = propose(old, kvPut(lost, 'noted'))
             check refused.status == 'OUTCOME_UNKNOWN', "the old leader cannot commit, and says it cannot know (${refused.status})"
             check raftStatus(old).commitIndex as long == commitBefore, 'the smaller side has committed nothing more'
 

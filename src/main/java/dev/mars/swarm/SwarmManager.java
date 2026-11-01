@@ -13,6 +13,7 @@ import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -43,6 +44,8 @@ public final class SwarmManager implements AutoCloseable {
     private GossipConfigFile gossipFile;
     private RaftConfigFile raftFile;
     private final java.util.Set<String> raftSwarms = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** The plugin folders of each server that runs without one of them for now. */
+    private final Map<String, List<Path>> heldBack = new java.util.concurrent.ConcurrentHashMap<>();
     private final ConnectionPool connections = new ConnectionPool();
     private final NetworkChaos network = new NetworkChaos(this::list);
     private volatile boolean closed;
@@ -81,11 +84,21 @@ public final class SwarmManager implements AutoCloseable {
      * restarts, until the swarm is stopped. The voters are fixed, so a Raft swarm refuses to be added to or removed from. With key-value
      * replication on for the harness, it is off for these servers, because Raft and kv's own replication at once would be silently wrong.
      */
-    public synchronized List<ServerEndpoint> startRaft(String name, int count) throws IOException {
+    public synchronized List<ServerEndpoint> startRaft(String name, int count) throws IOException { return startRaft(name, count, null); }
+
+    /**
+     * A Raft swarm whose servers start without one plugin, named as in its jar's name ({@code kv} for {@code kv-plugin-*.jar}), so commands
+     * for it commit and wait to be applied. {@link #restartServerWithAllPlugins} then activates it, one server at a time.
+     */
+    public synchronized List<ServerEndpoint> startRaft(String name, int count, String without) throws IOException {
         ensureOpen();
         if (count < 1 || count > MAX_RAFT_SERVERS) { throw new IllegalArgumentException("A Raft swarm holds from 1 to " + MAX_RAFT_SERVERS + " servers"); }
         synchronized (swarms) {
             if (swarms.containsKey(name)) { throw new IllegalArgumentException("Swarm already exists: " + name); }
+        }
+        if (without != null) {
+            var kept = directoriesWithout(without);
+            for (int i = 1; i <= count; i++) { heldBack.put(GossipConfigFile.id(name, i), kept); }
         }
         if (raftFile == null) { raftFile = RaftConfigFile.open(); }
         if (kvReplicate) {
@@ -101,12 +114,31 @@ public final class SwarmManager implements AutoCloseable {
             return endpoints;
         } catch (IOException | RuntimeException failed) {
             try {
+                forgetHeldBack(name);
                 if (started) { stop(name); }
                 else if (kvFile != null) { kvFile.forget(name); }
             } catch (IOException | RuntimeException cleanup) { failed.addSuppressed(cleanup); }
             throw failed;
         }
     }
+
+    /** The plugin folders without the one holding this plugin. */
+    private List<Path> directoriesWithout(String plugin) throws IOException {
+        var kept = new ArrayList<Path>();
+        for (var directory : pluginDirectories) {
+            boolean holdsIt;
+            try (var files = Files.list(directory)) {
+                holdsIt = files.map(file -> file.getFileName().toString()).anyMatch(file -> file.startsWith(plugin + "-plugin") && file.endsWith(".jar"));
+            }
+            if (!holdsIt) { kept.add(directory); }
+        }
+        if (kept.size() == pluginDirectories.size()) { throw new IllegalArgumentException("No plugin folder holds a " + plugin + "-plugin jar"); }
+        return List.copyOf(kept);
+    }
+
+    private List<Path> directoriesFor(String serverId) { return heldBack.getOrDefault(serverId, pluginDirectories); }
+
+    private void forgetHeldBack(String swarm) { heldBack.keySet().removeIf(id -> id.startsWith(swarm + "-Server-")); }
 
     private void bootstrap(String name, List<ServerEndpoint> servers) throws IOException {
         var voters = new ArrayList<Map<String, Object>>();
@@ -137,6 +169,7 @@ public final class SwarmManager implements AutoCloseable {
     }
 
     private void forgetRaftSwarm(String name, List<ServerInstance> servers) throws IOException {
+        forgetHeldBack(name);
         if (kvFile != null) { kvFile.forget(name); }
         if (!raftSwarms.remove(name)) { return; }
         for (var server : servers) { raftFile.forgetServer(server.getServerId()); }
@@ -207,7 +240,8 @@ public final class SwarmManager implements AutoCloseable {
     }
 
     private ServerInstance startOne(String swarm, int index, ConcurrentLinkedQueue<ServerInstance> opened) throws IOException {
-        var server = factory.start(new ServerOptions(GossipConfigFile.id(swarm, index), 0, 0, pluginDirectories));
+        var id = GossipConfigFile.id(swarm, index);
+        var server = factory.start(new ServerOptions(id, 0, 0, directoriesFor(id)));
         opened.add(server);
         return server;
     }
@@ -389,13 +423,24 @@ public final class SwarmManager implements AutoCloseable {
         int port = old.getPort(), adminPort = old.getAdminPort();
         try { old.close(); }
         catch (RuntimeException e) { throw new IOException("Cannot stop " + serverId + " before restarting", e); }
+        // It may come back with a plugin it did not have, so what was learned about it no longer holds.
+        withoutKv.remove(port);
+        withoutGossip.remove(port);
         ServerInstance fresh;
-        try { fresh = factory.start(new ServerOptions(serverId, port, adminPort, pluginDirectories)); }
+        try { fresh = factory.start(new ServerOptions(serverId, port, adminPort, directoriesFor(serverId))); }
         catch (IOException | RuntimeException e) { throw new IOException("Cannot restart " + serverId + ": " + e.getMessage(), e); }
         var updated = new ArrayList<>(at.servers());
         updated.set(at.position(), fresh);
         synchronized (swarms) { swarms.put(at.swarm(), List.copyOf(updated)); }
         return new ServerEndpoint(serverId, fresh.getPort(), fresh.getAdminPort());
+    }
+
+    /** Restarts a server held back from a plugin with every plugin, the only way a plugin can be activated, since plugins load at start. */
+    public synchronized ServerEndpoint restartServerWithAllPlugins(String serverId) throws IOException {
+        ensureOpen();
+        locate(serverId);
+        heldBack.remove(serverId);
+        return restartServer(serverId);
     }
 
     /**

@@ -26,8 +26,9 @@ abstract class SwarmScript extends Script {
     private final HttpClient http = HttpClient.newHttpClient()
     private final JsonSlurper json = new JsonSlurper()
     /** Each server's main port, by server ID; refreshed from the harness when a server is not found or does not answer. */
-    private final Map<String, Integer> ports = [:]
-    private final Map<Integer, ServerLink> links = [:]
+    private final Map<String, Integer> ports = new java.util.concurrent.ConcurrentHashMap<>()
+    /** One connection to a port for each thread, because a slow answer must hold up only the client that asked. */
+    private final Map<String, ServerLink> links = [:]
     private final Random random = new Random()
     /** Different on every run, so the keys one run writes are never mistaken for those an earlier run left behind. */
     final String runId = Long.toString(System.currentTimeMillis(), 36)
@@ -213,17 +214,73 @@ abstract class SwarmScript extends Script {
 
     // ---- Raft -----------------------------------------------------------------------------------------------------
 
-    /** Starts a swarm whose servers form a Raft cluster, which needs the Raft plugin in the harness's --plugins-dir. */
-    List<String> startRaft(String name, int count) {
-        def started = request('POST', '/api/swarms', [name: name, servers: count, mode: 'raft']).servers
-        log "Started Raft swarm ${name} | servers=${started}"
+    /**
+     * Starts a swarm whose servers form a Raft cluster, which needs the Raft plugin in the harness's --plugins-dir. With {@code without}
+     * they start without that plugin, {@code 'kv'} say, until {@link #restartWithAllPlugins} gives it to them.
+     */
+    List<String> startRaft(String name, int count, String without = null) {
+        def body = [name: name, servers: count, mode: 'raft']
+        if (without) { body.without = without }
+        def started = request('POST', '/api/swarms', body).servers
+        log "Started Raft swarm ${name} | servers=${started}${without ? ', without ' + without : ''}"
         started as List<String>
     }
+
+    /** Restarts a server held back from a plugin with all of them: plugins load only at start. */
+    void restartWithAllPlugins(String serverId) { serverAction(serverId, 'restart-with-all-plugins', 'Restarted with all plugins') }
 
     Map raftStatus(String serverId) { call(serverId, 'raft', [operation: 'status']) as Map }
 
     /** Asks one server to commit a command. The reply's status is COMMITTED, NOT_LEADER, REFUSED or OUTCOME_UNKNOWN. */
     Map propose(String serverId, Map command) { call(serverId, 'raft', [operation: 'propose', command: command]) as Map }
+
+    /** Runs a command on one server, if it leads and a majority confirms that. The reply's status is READ, NOT_LEADER, REFUSED or OUTCOME_UNKNOWN. */
+    Map raftRead(String serverId, Map command) { call(serverId, 'raft', [operation: 'read', command: command]) as Map }
+
+    /** A kv write, as a command for {@link #propose}. */
+    Map kvPut(String key, Object value) { [instruction: 'kv', parameters: [operation: 'put', key: key, value: value]] }
+
+    /** A kv read, as a command for {@link #raftRead}. */
+    Map kvGet(String key) { [instruction: 'kv', parameters: [operation: 'get', key: key]] }
+
+    /** Reads through one server, as a client does: if that server does not lead, it names who does, and that one is asked. Null if nothing could be read in time. */
+    Map readThrough(String serverId, Map command, long timeoutMillis = 15_000) {
+        long deadline = System.currentTimeMillis() + timeoutMillis
+        String asking = serverId
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                Map answer = raftRead(asking, command)
+                if (answer.status == 'READ') { return answer }
+                asking = answer.leader ?: serverId
+            } catch (Exception notAnswering) {
+                asking = serverId
+            }
+            Thread.sleep(100)
+        }
+        null
+    }
+
+    /** Waits until every server given, by default all up, has applied at least this far. Returns whether that happened in time. */
+    boolean awaitApplied(String name, long index, long timeoutMillis = 15_000, Collection<String> among = null) {
+        waitFor("${name} has applied ${index} everywhere", timeoutMillis) {
+            def up = servers(name).findAll { it.alive && (among == null || it.serverId in among) }
+            up && up.every { (it.raft?.appliedIndex ?: 0) as long >= index }
+        }
+    }
+
+    /** Once every server up has applied all it has committed, they report the same checkpoint, which covers what each command's outcome was. */
+    boolean checkCheckpointsAgree(String name) {
+        Map<String, List<Object>> reported = [:]
+        boolean settled = waitFor("${name} has applied all it committed, everywhere", 15_000) {
+            def up = servers(name).findAll { it.alive }
+            reported = up.collectEntries { [(it.serverId): [it.raft?.appliedIndex, it.raft?.commitIndex, it.raft?.checkpointIndex, it.raft?.checkpointHash]] } as Map<String, List<Object>>
+            up && reported.values().every { it[0] == it[1] } && reported.values().collect { it[0] }.unique(false).size() == 1
+        }
+        if (!check(settled, "every server of ${name} has applied the same entries")) { return false }
+        long position = reported.values().first()[2] as long
+        check position > 0, "there is a checkpoint to compare (${position})"
+        check reported.values().collect { it[2..3] }.unique(false).size() == 1, "every server of ${name} reports the same checkpoint at position ${position}"
+    }
 
     /** Every entry a server holds, committed or not. */
     List<Map> raftLog(String serverId) {
@@ -291,7 +348,7 @@ abstract class SwarmScript extends Script {
         def committed = [:] as LinkedHashMap<Long, String>
         count.times { i ->
             String note = key("${label}-${i}")
-            Map answer = proposeToLeader(name, [instruction: 'note', parameters: [note: note]], 15_000, among)
+            Map answer = proposeToLeader(name, kvPut(note, 'noted'), 15_000, among)
             if (check(answer.status == 'COMMITTED', "${note} commits (${answer.status}${answer.reason ? ': ' + answer.reason : ''})")) {
                 committed[answer.index as long] = note
             }
@@ -308,6 +365,108 @@ abstract class SwarmScript extends Script {
             committed.every { index, note -> log[(int) index - 1]?.command?.contains(note) }
         }
         check all, "every server of ${name} holds all ${committed.size()} committed entries where they were committed"
+    }
+
+    // ---- A history of what clients saw ------------------------------------------------------------------------------
+
+    /**
+     * Runs {@code clients} clients while {@code meanwhile} runs, each reading and writing a few keys and recording what it saw, for
+     * {@link HistoryChecker}. {@code write} takes a key and a value that nobody else ever writes, and returns {@code 'ok'}, {@code 'unknown'}
+     * or {@code 'no'}, which means it certainly did not take effect. {@code read} takes a key, and returns {@code [value]}, which may hold null,
+     * or null if nothing was read. Reading each key once more afterwards, in this same way, lets the history show that nothing was lost.
+     */
+    List<HistoryOp> clientsDuring(String label, int clients, int keyCount, Closure<String> write, Closure<List> read, Closure meanwhile) {
+        def history = Collections.synchronizedList(new ArrayList<HistoryOp>())
+        def names = (0..<keyCount).collect { key("${label}-${it}") }
+        def stopping = new java.util.concurrent.atomic.AtomicBoolean()
+        def workers = (0..<clients).collect { client ->
+            Thread.start("client-${client}") {
+                def own = new Random()
+                int written = 0
+                while (!stopping.get()) {
+                    String chosen = names[own.nextInt(names.size())]
+                    if (own.nextBoolean()) {
+                        String value = "${client}.${written++}".toString()
+                        recordWrite(history, chosen, value, write)
+                    } else {
+                        recordRead(history, chosen, read)
+                    }
+                    Thread.sleep(own.nextInt(20) as long)
+                }
+            }
+        }
+        try {
+            meanwhile.call()
+        } finally {
+            stopping.set(true)
+            workers*.join()
+        }
+        names.each { chosen ->
+            waitFor("the last read of ${chosen}", 15_000) { recordRead(history, chosen, read) }
+        }
+        new ArrayList<HistoryOp>(history)
+    }
+
+    static void recordWrite(List<HistoryOp> history, String chosen, String value, Closure<String> write) {
+        long began = System.nanoTime()
+        String outcome
+        try { outcome = write.call(chosen, value) }
+        catch (Exception noAnswer) { outcome = 'unknown' }
+        long ended = System.nanoTime()
+        if (outcome == 'ok') { history.add(new HistoryOp(chosen, true, value, began, ended)) }
+        else if (outcome == 'unknown') { history.add(new HistoryOp(chosen, true, value, began, null)) }
+    }
+
+    static boolean recordRead(List<HistoryOp> history, String chosen, Closure<List> read) {
+        long began = System.nanoTime()
+        List seen
+        try { seen = read.call(chosen) }
+        catch (Exception noAnswer) { seen = null }
+        long ended = System.nanoTime()
+        if (seen == null) { return false }
+        history.add(new HistoryOp(chosen, false, seen[0] as String, began, ended))
+        true
+    }
+
+    /** A Raft swarm's write, as a client makes it: to whoever it last heard leads, by name, or to any server. */
+    Closure<String> raftWrites(Collection<String> names) {
+        def candidates = new ArrayList<String>(names)
+        def leaderNow = new java.util.concurrent.atomic.AtomicReference<String>()
+        return { String chosen, String value ->
+            String asking = leaderNow.get() ?: candidates[java.util.concurrent.ThreadLocalRandom.current().nextInt(candidates.size())]
+            Map answer = propose(asking, kvPut(chosen, value))
+            switch (answer.status) {
+                case 'COMMITTED': leaderNow.set(asking); return 'ok'
+                case 'NOT_LEADER': leaderNow.set(answer.leader as String); return 'no'
+                case 'OUTCOME_UNKNOWN': leaderNow.set(null); return 'unknown'
+                default: return 'no'
+            }
+        }
+    }
+
+    /** A Raft swarm's linearizable read. */
+    Closure<List> raftReads(Collection<String> names) {
+        def candidates = new ArrayList<String>(names)
+        def leaderNow = new java.util.concurrent.atomic.AtomicReference<String>()
+        return { String chosen ->
+            String asking = leaderNow.get() ?: candidates[java.util.concurrent.ThreadLocalRandom.current().nextInt(candidates.size())]
+            Map answer = raftRead(asking, kvGet(chosen))
+            if (answer.status == 'READ') {
+                leaderNow.set(asking)
+                return answer.result.found ? [answer.result.value] : [null]
+            }
+            leaderNow.set(answer.status == 'NOT_LEADER' ? answer.leader as String : null)
+            return null
+        }
+    }
+
+    /** Fails a check if some key's history cannot be explained, showing the start of the first that cannot. */
+    boolean checkLinearizable(List<HistoryOp> history, String what) {
+        def result = HistoryChecker.check(history)
+        log "History of ${what}: ${result.operations} operations on ${result.keys} keys, ${history.count { it.write }} writes, ${history.count { it.write && !it.definite }} of unknown outcome"
+        result.violations.keySet().take(1).each { log "No order explains ${it}" }
+        result.undecided.each { log "Gave up on ${it}" }
+        check result.linearizable, "${what} is linearizable"
     }
 
     /** A key for this run only: {@code key('split')} is {@code split-<runId>}. The store keeps keys across runs. */
@@ -469,12 +628,14 @@ abstract class SwarmScript extends Script {
             if (!ports.containsKey(serverId)) { throw new IllegalArgumentException("No server named ${serverId}") }
         }
         int port = ports[serverId]
-        links.computeIfAbsent(port) { new ServerLink('localhost', port) }
+        links.computeIfAbsent("${port}/${Thread.currentThread().threadId()}".toString()) { new ServerLink('localhost', port) }
     }
 
     private synchronized void closeLink(String serverId) {
         def port = ports[serverId]
-        if (port != null) { links.remove(port)?.close() }
+        if (port == null) { return }
+        def closing = links.keySet().findAll { it.startsWith("${port}/") }
+        closing.each { links.remove(it)?.close() }
     }
 
     /** One kept-open connection to a server. A request on one the server has closed meanwhile is sent once more on a new one. */

@@ -24,7 +24,7 @@ try {
                 kill old
                 long stopped = System.currentTimeMillis()
                 // Measured to the first commit, because that is when clients can carry on, and a leader alone proves nothing.
-                Map first = proposeToLeader(name, [instruction: 'note', parameters: [note: key("failover-${round}")]], 15_000, others)
+                Map first = proposeToLeader(name, kvPut(key("failover-${round}"), 'noted'), 15_000, others)
                 long took = System.currentTimeMillis() - stopped
                 failovers << took
                 log "From stopping ${old} to the next commit: ${took} ms"

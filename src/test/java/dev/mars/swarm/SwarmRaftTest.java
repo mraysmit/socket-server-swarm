@@ -231,6 +231,170 @@ class SwarmRaftTest {
         }
     }
 
+    // ---- Applying to plugins ------------------------------------------------------------------------------------------
+
+    private static Map<String, Object> kvPut(String key, String value) {
+        return Map.of("instruction", "kv", "parameters", Map.of("operation", "put", "key", key, "value", value));
+    }
+
+    private static Map<String, Object> kvGet(String key) {
+        return Map.of("instruction", "kv", "parameters", Map.of("operation", "get", "key", key));
+    }
+
+    private static Map<String, Object> proposeCommand(SwarmManager manager, String serverId, Map<String, Object> command) throws IOException {
+        return raft(manager, serverId, Map.of("operation", "propose", "command", command));
+    }
+
+    /** The answer once the server leading has committed the command, trying again as a client must. */
+    private static Map<String, Object> commit(SwarmManager manager, List<ServerEndpoint> servers, Map<String, Object> command) throws Exception {
+        var answer = new LinkedHashMap<String, Object>();
+        await("it commits", () -> {
+            try {
+                answer.clear();
+                answer.putAll(proposeCommand(manager, leaderAmong(manager, servers), command));
+                return "COMMITTED".equals(answer.get("status"));
+            } catch (Exception notYet) { return false; }
+        });
+        return answer;
+    }
+
+    private static void awaitApplied(SwarmManager manager, ServerEndpoint server, long index) throws Exception {
+        await(server.serverId() + " has applied up to " + index, () -> status(manager, server.serverId()).get("appliedIndex") instanceof Number applied && applied.longValue() >= index);
+    }
+
+    private static String kvValue(SwarmManager manager, ServerEndpoint server, String key) throws IOException {
+        var request = "{\"instruction\":\"kv\",\"parameters\":{\"operation\":\"get\",\"key\":\"" + key + "\"}}";
+        var outcome = manager.command(server.serverId(), request);
+        assertEquals(Boolean.TRUE, outcome.get("ok"), outcome.toString());
+        return String.valueOf(((Map<?, ?>) outcome.get("result")).get("value"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> readValue(SwarmManager manager, List<ServerEndpoint> servers, String key) throws Exception {
+        var answer = new LinkedHashMap<String, Object>();
+        await("it can be read", () -> {
+            try {
+                answer.clear();
+                answer.putAll(raft(manager, leaderAmong(manager, servers), Map.of("operation", "read", "command", kvGet(key))));
+                return "READ".equals(answer.get("status"));
+            } catch (Exception notYet) { return false; }
+        });
+        return (Map<String, Object>) answer.get("result");
+    }
+
+    @Test void theRealKvBehindRaftHoldsTheSameEverywhereAndCanBeReadThroughTheLeader() throws Exception {
+        try (var manager = new SwarmManager(List.of(KV, RAFT))) {
+            var servers = manager.startRaft("distributed", 3);
+            var answer = commit(manager, servers, kvPut("colour", "blue"));
+            assertEquals(true, answer.get("applied"), answer.toString());
+            for (var server : servers) {
+                awaitApplied(manager, server, ((Number) answer.get("index")).longValue());
+                assertEquals("blue", kvValue(manager, server, "colour"));
+            }
+            assertEquals("blue", readValue(manager, servers, "colour").get("value"));
+        }
+    }
+
+    @Test void theRealKvComesBackAfterEveryServerRestartsThoughItKeepsNothing() throws Exception {
+        try (var manager = new SwarmManager(List.of(KV, RAFT))) {
+            var servers = manager.startRaft("distributed", 3);
+            long index = ((Number) commit(manager, servers, kvPut("colour", "blue")).get("index")).longValue();
+            for (var server : servers) { manager.stopServer(server.serverId()); }
+            for (var server : servers) { manager.restartServer(server.serverId()); }
+            for (var server : servers) {
+                awaitApplied(manager, server, index);
+                assertEquals("blue", kvValue(manager, server, "colour"));
+            }
+        }
+    }
+
+    @Test void raftWorksInAllFourCombinationsOfTheOtherPlugins() throws Exception {
+        record Combination(String name, List<Path> plugins, GossipSettings gossip, boolean hasKv) { }
+        var combinations = List.of(
+                new Combination("alone", List.of(RAFT), null, false),
+                new Combination("with gossip", List.of(GOSSIP, RAFT), GossipSettings.fast(), false),
+                new Combination("with kv", List.of(KV, RAFT), null, true),
+                new Combination("with both", List.of(GOSSIP, KV, RAFT), GossipSettings.fast(), true));
+        for (var combination : combinations) {
+            try (var manager = new SwarmManager(combination.plugins(), combination.gossip())) {
+                var servers = manager.startRaft("combination", 3);
+                var answer = commit(manager, servers, kvPut("colour", "blue"));
+                assertEquals(combination.hasKv(), answer.get("applied"), combination.name() + ": " + answer);
+                if (combination.hasKv()) { assertEquals("blue", readValue(manager, servers, "colour").get("value"), combination.name()); }
+                else { await(combination.name() + " waits for kv", () -> status(manager, servers.getFirst().serverId()).containsKey("waitingFor")); }
+            }
+        }
+    }
+
+    @Test void aPluginHeldBackCommitsNowAndCatchesUpWhenEachServerRestartsWithIt() throws Exception {
+        try (var manager = new SwarmManager(List.of(KV, RAFT))) {
+            var servers = manager.startRaft("late", 3, "kv");
+            assertEquals(List.of("echo", "raft"), manager.instructions(servers.getFirst().serverId()).stream().sorted().toList());
+            var answer = commit(manager, servers, kvPut("colour", "blue"));
+            assertEquals(false, answer.get("applied"), answer.toString());
+            long index = ((Number) answer.get("index")).longValue();
+            manager.restartServer(servers.getFirst().serverId());
+            assertEquals(List.of("echo", "raft"), manager.instructions(servers.getFirst().serverId()).stream().sorted().toList(), "An ordinary restart keeps it held back");
+            for (var server : servers) {
+                manager.restartServerWithAllPlugins(server.serverId());
+                assertEquals(List.of("echo", "kv", "raft"), manager.instructions(server.serverId()).stream().sorted().toList());
+                awaitApplied(manager, server, index);
+                assertEquals("blue", kvValue(manager, server, "colour"));
+            }
+        }
+    }
+
+    @Test void theSnapshotSeesAPluginAServerGainedByRestarting() throws Exception {
+        try (var manager = new SwarmManager(List.of(KV, RAFT))) {
+            var server = manager.startRaft("late", 1, "kv").getFirst();
+            leaderAmong(manager, List.of(server));
+            var before = Json.read(Json.write(SwarmSnapshot.take(manager))).get("swarms").get(0).get("servers").get(0);
+            assertTrue(before.get("kv").isNull());
+            manager.restartServerWithAllPlugins(server.serverId());
+            var after = Json.read(Json.write(SwarmSnapshot.take(manager))).get("swarms").get(0).get("servers").get(0);
+            assertFalse(after.get("kv").isNull(), "It asked once and got no answer, but that was before the restart");
+        }
+    }
+
+    @Test void holdingBackAPluginNoFolderHoldsIsRefusedAndLeavesNothingBehind() throws Exception {
+        try (var manager = raftOnly()) {
+            assertThrows(IllegalArgumentException.class, () -> manager.startRaft("late", 1, "nonsense"));
+            assertTrue(manager.list().isEmpty());
+            assertFalse(manager.isRaft("late"));
+        }
+    }
+
+    @Test void stoppingASwarmForgetsWhatWasHeldBackSoTheNameStartsAfresh() throws Exception {
+        try (var manager = new SwarmManager(List.of(KV, RAFT))) {
+            var server = manager.startRaft("late", 1, "kv").getFirst();
+            manager.stop("late");
+            assertEquals(server.serverId(), manager.startRaft("late", 1).getFirst().serverId());
+            assertTrue(manager.instructions(server.serverId()).contains("kv"));
+        }
+    }
+
+    @Test void thePageCanStartASwarmWithoutAPluginAndActivateItLater() throws Exception {
+        try (var manager = new SwarmManager(List.of(KV, RAFT)); var ui = new UiServer(manager, 0)) {
+            var http = HttpClient.newHttpClient();
+            var base = "http://localhost:" + ui.port();
+            var started = http.send(HttpRequest.newBuilder(URI.create(base + "/api/swarms"))
+                    .header("Origin", base).header(UiServer.ACTION_HEADER, "1")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"late\",\"servers\":1,\"mode\":\"raft\",\"without\":\"kv\"}")).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, started.statusCode(), started.body());
+            var id = manager.list().get("late").getFirst().serverId();
+            assertFalse(manager.instructions(id).contains("kv"));
+            var restarted = http.send(HttpRequest.newBuilder(URI.create(base + "/api/servers/" + id + "/restart-with-all-plugins"))
+                    .header("Origin", base).header(UiServer.ACTION_HEADER, "1")
+                    .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, restarted.statusCode(), restarted.body());
+            assertTrue(manager.instructions(id).contains("kv"));
+            var refused = http.send(HttpRequest.newBuilder(URI.create(base + "/api/swarms"))
+                    .header("Origin", base).header(UiServer.ACTION_HEADER, "1")
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"plain\",\"servers\":1,\"without\":\"kv\"}")).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(400, refused.statusCode(), refused.body());
+        }
+    }
+
     @Test void stoppingASwarmDeletesWhatItKeptAndTheNameCanBeUsedAgainFromScratch() throws Exception {
         try (var manager = raftOnly()) {
             var servers = manager.startRaft("consensus", 1);

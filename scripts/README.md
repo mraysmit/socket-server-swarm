@@ -55,6 +55,10 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | `startRaft name, n`, `propose id, command`, `proposeToLeader name, command`, `raftStatus id`, `raftLog id` | A Raft swarm, a command to commit on one server or on whoever leads, and what a server knows and holds. |
 | `leader name`, `awaitLeader name`, `awaitCommitted name, index` | Who leads, and waiting for a leader or for every server to commit. |
 | `commitNotes name, label, n`, `checkHeldEverywhere name, committed`, `checkLogsAgree name`, `checkOneLeaderPerTerm name` | Commit a few commands and remember where, and check Raft's promises. |
+| `kvPut key, value`, `kvGet key`, `raftRead id, command`, `readThrough id, command` | kv commands for Raft, and a read on one server, or through it to whoever it says leads. |
+| `awaitApplied name, index`, `checkCheckpointsAgree name` | Wait for every server to apply this far, and check that each has applied the same things with the same kinds of outcome. |
+| `startRaft name, n, 'kv'`, `restartWithAllPlugins id` | A Raft swarm without that plugin, and giving it to one server. |
+| `clientsDuring label, clients, keys, write, read { ... }`, `raftWrites ids`, `raftReads ids`, `checkLinearizable history, 'what'` | Clients reading and writing while something happens, and the history checker's verdict on what they saw. |
 | `mark 'text'` | Note a step on the page's timeline, so a replay shows what was done when. |
 | `experiment 'title', [steady: {...}, method: {...}, rollback: {...}]` | A chaos experiment: steady state before and after, rollback always. It marks its steps on the timeline itself. |
 
@@ -79,8 +83,15 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | [chaos/raft-partition.groovy](chaos/raft-partition.groovy) | With the leader on the smaller side of a split, that side commits nothing and the larger side carries on. After healing they agree, and what the old leader could not commit is gone. |
 | [chaos/raft-restart-all.groovy](chaos/raft-restart-all.groovy) | Every server stopped and restarted keeps all that was committed, and elects a leader with no bootstrap. |
 | [chaos/raft-lossy.groovy](chaos/raft-lossy.groovy) | Delay everywhere and heavy loss at the leader slow commits without breaking agreement. |
+| [raft-kv.groovy](raft-kv.groovy) | The demo of kv on Raft: a write committed and applied on every server, read back through any of them. A typo and a write sent as a read are refused. It leaves its swarm running to look at. |
+| [chaos/raft-kv-partition.groovy](chaos/raft-kv-partition.groovy) | With clients reading and writing throughout a split, the smaller side refuses both, no acknowledged write is lost, and the history checker explains all that clients saw. |
+| [chaos/raft-kv-restart-all.groovy](chaos/raft-kv-restart-all.groovy) | Every server stopped and restarted gets all its kv data back, though kv itself keeps nothing. |
+| [chaos/raft-kv-late.groovy](chaos/raft-kv-late.groovy) | kv commands commit with kv not loaded. Restarting servers one at a time with it, each catches up, and they all agree. |
+| [chaos/history-checker.groovy](chaos/history-checker.groovy) | That the history checker works: hand-written histories whose answers are known, and violations found in last-writer-wins replication through a split. |
 
-The Raft scripts start their own swarms and stop them at the end. They need the Raft plugin in the harness's `--plugins-dir`.
+The Raft scripts start their own swarms and stop them at the end, except `raft-kv` unless told to. They need the Raft plugin in the harness's `--plugins-dir`, and the `raft-kv` scripts need kv too. `chaos/history-checker` needs gossip, kv and `--kv-replicate`.
+
+`lib/HistoryChecker.groovy` decides whether a history of client operations could have come from one copy of the data. It checks each key by itself, each write must write a value of its own, and it allows a write of unknown outcome to have taken effect at any time after it was made, or never. If a key defeats its search, it reports that key as undecided, which fails the check and is not taken as a pass.
 
 Network faults apply to the requests servers make of one another (gossip exchanges, key-value pushes and comparisons),
 which all go through the host's kept-open client. The harness decides each one from the rules in force; a lost request

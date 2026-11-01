@@ -24,7 +24,7 @@ public final class UiServer implements AutoCloseable {
 
     /** Header a page must send with every action; cross-site requests cannot add it without a preflight, which is refused. */
     public static final String ACTION_HEADER = "X-Swarm-UI";
-    private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart|remove|freeze|thaw)");
+    private static final Pattern ACTION_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/(stop|leave|restart|restart-with-all-plugins|remove|freeze|thaw)");
 
     private static final Pattern COMMAND_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/command");
     private static final Pattern MEMBERS_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/members");
@@ -129,6 +129,7 @@ public final class UiServer implements AutoCloseable {
                     manager.removeServer(serverId);
                     if (activity != null) { activity.forget(serverId); }
                 }
+                case "restart-with-all-plugins" -> manager.restartServerWithAllPlugins(serverId);
                 default -> manager.restartServer(serverId);
             }
             mark(what, serverId);
@@ -150,7 +151,9 @@ public final class UiServer implements AutoCloseable {
             if (path.equals("/api/swarms")) {
                 var mode = body.path("mode").asText("");
                 if (!mode.isEmpty() && !mode.equals("raft")) { throw new IllegalArgumentException("Unknown mode: " + mode); }
-                var endpoints = mode.equals("raft") ? manager.startRaft(text(body, "name"), integer(body, "servers", 0))
+                var without = body.path("without").asText("");
+                if (!without.isEmpty() && !mode.equals("raft")) { throw new IllegalArgumentException("Only a Raft swarm can start without a plugin"); }
+                var endpoints = mode.equals("raft") ? manager.startRaft(text(body, "name"), integer(body, "servers", 0), without.isEmpty() ? null : without)
                         : manager.start(text(body, "name"), integer(body, "servers", 0));
                 mark("start", text(body, "name") + " with " + endpoints.size() + " servers" + (mode.equals("raft") ? ", as a Raft cluster" : ""));
                 reply(exchange, 200, "application/json", Json.write(java.util.Map.of("ok", true, "servers", endpoints.stream().map(ServerEndpoint::serverId).toList())));
