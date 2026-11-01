@@ -16,18 +16,18 @@
   --bg:#eaeef2; --panel:#fafbfc; --ink:#14202b; --mute:#566676; --line:#d0d8df; --soft:#e2e8ee;
   --accent:#2456d6; --accent-ink:#ffffff;
   --ok:#0f7a50; --warn:#a35a00; --bad:#c0302c; --gone:#6f7e8c; --ice:#1f7fc4; --ice-soft:#e1f0fb; --cut:#7a3fcf;
-  --t-gossip:var(--accent); --t-push:#b3329a; --t-compare:#0a7f86; --t-client:var(--ink); --t-other:var(--mute);
+  --t-gossip:var(--accent); --t-push:#b3329a; --t-compare:#0a7f86; --t-client:var(--ink); --t-other:var(--mute); --t-vote:#96700a; --t-append:#4b7f1f;
   --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
   --accent:#7aa2ff; --accent-ink:#0c151e;
-  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; color-scheme:dark;}}
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; --t-vote:#e3c04d; --t-append:#9ad06a; color-scheme:dark;}}
 :root[data-theme="dark"]{
   --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
   --accent:#7aa2ff; --accent-ink:#0c151e;
-  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; color-scheme:dark;}
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; --t-vote:#e3c04d; --t-append:#9ad06a; color-scheme:dark;}
 
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;
@@ -76,6 +76,7 @@ select{background:var(--panel);border:1px solid var(--line);border-radius:6px;pa
 .kvline{font-family:var(--mono);font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
 .kvline.ok{color:var(--ok)}
 .kvline.warn{color:var(--warn)}
+.kvline.bad{color:var(--bad);font-weight:600}
 .meter{height:5px;background:var(--soft);border-radius:3px;overflow:hidden}
 .meter i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .chips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
@@ -132,6 +133,13 @@ svg[data-lod="low"] .arcbg,svg[data-lod="low"] .arc{display:none}
 .plug text{font-family:var(--mono);font-size:7.5px;font-weight:600;text-anchor:middle;dominant-baseline:central;fill:var(--mute)}
 .plug.pl-GS rect{stroke:var(--accent)} .plug.pl-GS text{fill:var(--accent)}
 .plug.pl-KV rect{stroke:var(--ok)} .plug.pl-KV text{fill:var(--ok)}
+.plug.pl-RA rect{stroke:var(--t-vote)} .plug.pl-RA text{fill:var(--t-vote)}
+/* Raft: a ring and a label for a server that believes it leads. A stale leader is dashed and amber; what a frozen one last said is plain. */
+.leadring{fill:none;stroke:var(--t-vote);stroke-width:max(3px,calc(2px / var(--k,1)))}
+.leadring.stale{stroke:var(--warn);stroke-dasharray:6 5}
+.leadring.frozen{stroke:var(--gone);stroke-dasharray:2 5}
+.rtag{font-family:var(--mono);font-weight:600;font-size:calc(12px / var(--k,1));text-anchor:middle;dominant-baseline:central;fill:var(--t-vote);paint-order:stroke;stroke:var(--panel);stroke-width:calc(3px / var(--k,1));pointer-events:none}
+.rtag.stale{fill:var(--warn)} .rtag.frozen{fill:var(--gone)} .rtag.candidate{fill:var(--mute);font-weight:500}
 svg[data-lod="mid"] .slab,svg[data-lod="low"] .slab,svg[data-lod="low"] .plug,svg[data-lod="low"] .sglyph{display:none}
 .chip.s-frozen .dot{border-color:var(--ice);background:var(--ice-soft)} .chip.s-partitioned .dot{border-color:var(--cut)}
 .chip.s-suspect .dot,.chip.s-degraded .dot{border-color:var(--warn)} .chip.s-recovering .dot{border-color:var(--ok);border-style:dashed}
@@ -150,7 +158,7 @@ svg[data-lod="mid"] .slab,svg[data-lod="low"] .slab,svg[data-lod="low"] .plug,sv
 .pulse.rep{opacity:.65}
 .pulse.drop{fill:var(--bad)}
 /* live traffic: one curved line per direction, thicker the more calls it has carried lately, and a dot per call */
-.tk-gossip{--c:var(--t-gossip)} .tk-push{--c:var(--t-push)} .tk-compare{--c:var(--t-compare)} .tk-client{--c:var(--t-client)} .tk-other{--c:var(--t-other)}
+.tk-gossip{--c:var(--t-gossip)} .tk-push{--c:var(--t-push)} .tk-compare{--c:var(--t-compare)} .tk-client{--c:var(--t-client)} .tk-other{--c:var(--t-other)} .tk-vote{--c:var(--t-vote)} .tk-append{--c:var(--t-append)}
 .tlink{fill:none;stroke:var(--c);stroke-linecap:round;pointer-events:none}
 .tlink.shaky{stroke:var(--warn)} .tlink.bad{stroke:var(--bad)}
 .thit{fill:none;stroke:transparent;cursor:pointer}
@@ -185,7 +193,7 @@ svg[data-lod="low"] .rulelab{display:none}
 .tr-marks{position:absolute;inset:0;pointer-events:none}
 .tr-mark{position:absolute;top:1px;width:5px;height:20px;margin-left:-2px;padding:0;border:0;border-radius:2px;background:var(--mute);opacity:.75;cursor:pointer;pointer-events:auto}
 .tr-mark:hover,.tr-mark:focus-visible{opacity:1;outline:2px solid var(--accent);outline-offset:1px}
-.tr-mark.mk-network{background:var(--cut)} .tr-mark.mk-stop,.tr-mark.mk-remove,.tr-mark.mk-leave{background:var(--bad)} .tr-mark.mk-freeze,.tr-mark.mk-thaw{background:var(--ice)} .tr-mark.mk-step{background:var(--accent)}
+.tr-mark.mk-network{background:var(--cut)} .tr-mark.mk-stop,.tr-mark.mk-remove,.tr-mark.mk-leave{background:var(--bad)} .tr-mark.mk-freeze,.tr-mark.mk-thaw{background:var(--ice)} .tr-mark.mk-step{background:var(--accent)} .tr-mark.mk-election{background:var(--t-vote)}
 .live .canvas-sel{top:96px}
 .tip{pointer-events:none}
 .pair-note{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--mute)}
@@ -208,7 +216,8 @@ svg[data-lod="low"] .rulelab{display:none}
 .p-ALIVE,.p-RUNNING,.p-COMPLETED{color:var(--ok)}
 .p-SUSPECT,.p-LEAVING,.p-DISSEMINATING,.p-STARTING,.p-INITIALIZING,.p-STOPPING,.p-EXHAUSTED,.p-FROZEN{color:var(--warn)}
 .p-DEAD,.p-STOPPED,.p-FAILED,.p-CLEANUP_FAILED{color:var(--bad)}
-.p-LEFT,.p-QUIESCED,.p-NOT_REQUESTED,.p-CANDIDATE,.p-MANUAL,.p-CANCELLED{color:var(--gone)}
+.p-LEFT,.p-QUIESCED,.p-NOT_REQUESTED,.p-CANDIDATE,.p-MANUAL,.p-CANCELLED,.p-FOLLOWER{color:var(--gone)}
+.p-LEADER{color:var(--t-vote)} .p-STALE_LEADER{color:var(--warn)}
 dl.facts{margin:0;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;border-bottom:1px solid var(--line)}
 dl.facts dt{color:var(--mute)} dl.facts dd{margin:0;font-family:var(--mono);font-size:12px;text-align:right;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .actions{padding:12px 14px;display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--line)}
@@ -289,9 +298,16 @@ dialog#cmd-ref>header h2{font-size:15px;font-weight:600;font-family:var(--sans);
 .ref-code{display:flex;gap:8px;align-items:flex-start}
 .ref-code code{flex:1;min-width:0;font-family:var(--mono);font-size:12px;line-height:1.5;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);word-break:break-all;user-select:all}
 .ref-code .btn{flex:none}
-#pane-activity,#pane-traffic{display:flex;flex-direction:column;overflow:hidden}
+#pane-activity,#pane-traffic,#pane-raftlog{display:flex;flex-direction:column;overflow:hidden}
 #pane-activity .act-top,#pane-traffic .act-top{padding:8px 14px}
-#pane-activity .feedwrap,#pane-traffic .feedwrap{flex:1;min-height:0}
+#pane-activity .feedwrap,#pane-traffic .feedwrap,#pane-raftlog .feedwrap{flex:1;min-height:0}
+.rl-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--mute)}
+#pane-raftlog td.cmd{white-space:normal;word-break:break-word;min-width:220px}
+#pane-raftlog tr.uncommitted td{color:var(--warn)}
+#pane-raftlog tr.noop td.cmd{color:var(--mute);font-style:italic}
+table.voters th,table.voters td{padding-inline:6px}
+table.voters th:first-child,table.voters td:first-child{padding-left:14px}
+table.voters th:last-child,table.voters td:last-child{padding-right:14px}
 .btn.small{padding:3px 9px;font-size:12px}
 input.find{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 9px;width:170px}
 input.find:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -327,7 +343,7 @@ input.find:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .log .t{color:var(--mute)}
 .log .k{text-transform:uppercase;letter-spacing:.05em}
 .k-converged,.k-started,.k-recovered,.k-restarted{color:var(--ok)} .k-suspect,.k-partition,.k-leaving{color:var(--warn)}
-.k-dead,.k-stopped{color:var(--bad)} .k-left{color:var(--gone)}
+.k-dead,.k-stopped{color:var(--bad)} .k-left{color:var(--gone)} .k-leader{color:var(--t-vote)}
 
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 
@@ -389,10 +405,11 @@ body{margin:0}
       <div class="ctl" id="ctl" hidden>
         <section class="grp" aria-labelledby="g-start">
           <div class="gh"><h3 id="g-start">Start a swarm</h3><button class="info" type="button" aria-expanded="false" aria-controls="i-start" aria-label="About start a swarm" title="About start a swarm">i</button></div>
-          <p class="info-text" id="i-start" hidden>Starts real socket servers inside this program, from 1 to 100, each on ports the operating system picks. The name must begin with a letter. When the harness was started with gossip, the servers find each other through the first one.</p>
+          <p class="info-text" id="i-start" hidden>Starts real socket servers inside this program, from 1 to 100, each on ports the operating system picks. The name must begin with a letter. When the harness was started with gossip, the servers find each other through the first one. Tick <b>Raft</b> to make them a Raft cluster, up to 9 servers, which needs the Raft plugin in the harness’s <b>--plugins-dir</b>.</p>
           <form class="row" id="ctl-start" aria-label="Start a swarm">
             <label class="sr" for="ctl-name">Swarm name</label><input class="w-name" id="ctl-name" placeholder="name" autocomplete="off" spellcheck="false">
             <label class="sr" for="ctl-count">Servers</label><input class="w-num" id="ctl-count" type="number" min="1" max="100" value="5" title="Servers, 1 to 100">
+            <label class="check" title="Make the servers a Raft cluster, up to 9. It needs the Raft plugin."><input type="checkbox" id="ctl-raft"> Raft</label>
             <button class="btn" id="ctl-go" type="submit" title="Start the swarm. 100 servers take several seconds.">Start</button>
           </form>
         </section>
@@ -448,6 +465,8 @@ body{margin:0}
             <button class="tchip tk-gossip" type="button" data-kind="gossip" aria-pressed="true" title="Gossip exchanges between servers"><i></i>Gossip</button>
             <button class="tchip tk-push" type="button" data-kind="push" aria-pressed="true" title="Key-value writes one server passes to another"><i></i>KV push</button>
             <button class="tchip tk-compare" type="button" data-kind="compare" aria-pressed="true" title="Key-value comparisons between two servers' stores"><i></i>KV compare</button>
+            <button class="tchip tk-vote" type="button" data-kind="vote" aria-pressed="true" title="Raft: a candidate asking another server for its vote. Seen only around an election."><i></i>Votes</button>
+            <button class="tchip tk-append" type="button" data-kind="append" aria-pressed="true" title="Raft: a leader sending entries or a heartbeat to a follower"><i></i>Appends</button>
             <button class="tchip tk-client" type="button" data-kind="client" aria-pressed="true" title="Requests from outside the swarm: scripts, the page and load tests. The harness polling its servers is not shown."><i></i>Clients</button>
             <button class="tchip tk-other" type="button" data-kind="other" aria-pressed="true" title="Anything else one server asks of another"><i></i>Other</button>
             <span class="tbar-gap"></span>
@@ -491,7 +510,9 @@ body{margin:0}
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--ok)" stroke-width="3" stroke-dasharray="6 3"/></svg>Recovering ↻ (catching up)</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--cut)" stroke-width="3" stroke-dasharray="9 3"/></svg>Partitioned ✂ (cut off by a network rule)</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="var(--warn)" stroke-width="3" stroke-dasharray="2 2"/></svg>Degraded ≈ (slow or lossy link)</span>
-        <span><svg viewBox="0 0 18 18"><rect x="1" y="4" width="16" height="10" rx="3" fill="none" stroke="var(--accent)"/><text x="9" y="11.5" font-size="7" text-anchor="middle" fill="var(--accent)" font-family="monospace" font-weight="600">GS</text></svg>Plugins: GS gossip, KV key-value, MU multiply</span>
+        <span><svg viewBox="0 0 18 18"><rect x="1" y="4" width="16" height="10" rx="3" fill="none" stroke="var(--accent)"/><text x="9" y="11.5" font-size="7" text-anchor="middle" fill="var(--accent)" font-family="monospace" font-weight="600">GS</text></svg>Plugins: GS gossip, KV key-value, RA Raft, MU multiply</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--t-vote)" stroke-width="2.5"/></svg>Raft leader, with its term</span>
+        <span class="liveonly" hidden><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--warn)" stroke-width="2.5" stroke-dasharray="4 3"/></svg>Stale leader: it believes it leads, but the swarm has moved on</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="30 44" transform="rotate(-90 9 9)"/></svg>Share of live peers this server sees</span>
         <span><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="5" fill="var(--warn)"/></svg>Badge: how the selected server rates it</span>
         <span class="simonly"><svg viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--accent)"/></svg>Exchange in flight</span>
@@ -513,10 +534,12 @@ body{margin:0}
           <button class="tab" id="tab-activity" role="tab" aria-selected="true" aria-controls="pane-activity" data-tab="activity" title="Each row is one connection to the server's main port. The server logs who connected, the instruction, the message ID and the reply status. It does not log message bodies.">Socket activity</button><button class="info" id="info-activity" type="button" data-info="activity" aria-expanded="false" aria-label="About socket activity" title="About socket activity">i</button>
           <button class="tab" id="tab-traffic" role="tab" aria-selected="false" aria-controls="pane-traffic" data-tab="traffic" title="Every call between servers and from clients, including those that never arrived" hidden>Traffic</button><button class="info" id="info-traffic" type="button" data-info="trafficTab" aria-expanded="false" aria-label="About the traffic tab" title="About the traffic tab" hidden>i</button>
           <button class="tab" id="tab-command" role="tab" aria-selected="false" aria-controls="pane-command" data-tab="command" title="Send one command to any server and see exactly what comes back" hidden>Command</button><button class="info" id="info-command" type="button" data-info="command" aria-expanded="false" aria-label="About the command tab" title="About the command tab">i</button>
+          <button class="tab" id="tab-raftlog" role="tab" aria-selected="false" aria-controls="pane-raftlog" data-tab="raftlog" title="What the selected server holds in its Raft log" hidden>Raft log</button><button class="info" id="info-raftlog" type="button" data-info="raftlog" aria-expanded="false" aria-label="About the Raft log" title="About the Raft log" hidden>i</button>
           <button class="tab" id="tab-events" role="tab" aria-selected="false" aria-controls="pane-events" data-tab="events">Events</button><button class="info" type="button" data-info="events" aria-expanded="false" aria-label="About events" title="About events">i</button>
           <span class="grow"></span>
           <button class="btn small" id="act-pause" aria-pressed="false" title="Freeze the feed so you can read it; press again to catch up" hidden>Pause feed</button>
           <label class="check" id="act-gossip-label" title="Show the gossip exchanges between servers in the feed. Untick to hide them."><input type="checkbox" id="act-gossip" checked> Show gossip</label>
+          <label class="check" id="act-raft-label" title="Show the votes and appends between Raft servers in the feed. Untick to see only what clients asked." hidden><input type="checkbox" id="act-raft" checked> Show Raft peers</label>
           <button class="btn small" id="dock-max" aria-pressed="false" title="Make the panel as tall as the window allows, or restore it">Expand</button>
           <button class="btn small" id="dock-toggle" aria-expanded="true" title="Collapse or expand this panel">Hide</button>
         </div>
@@ -553,10 +576,24 @@ body{margin:0}
             <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"delete","key":"colour"}}' title="Needs the key-value plugin. Removes a key from this server.">delete</button>
             <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"list"}}' title="Needs the key-value plugin. Lists every key on this server.">list</button>
             <button class="btn small" type="button" data-fill='{"instruction":"kv","parameters":{"operation":"status"}}' title="Needs the key-value plugin. Whether replication is on, what this server holds, and how many pushes it has made.">status</button>
+            <span class="grp-label">raft</span>
+            <button class="btn small" type="button" data-fill='{"instruction":"raft","parameters":{"operation":"status"}}' title="Needs a Raft swarm. Role, term, leader, commit and applied positions, checkpoint.">status</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"raft","parameters":{"operation":"propose","command":{"instruction":"kv","parameters":{"operation":"put","key":"colour","value":"blue"}}}}' title="The way to write on a Raft swarm. Send it to the leader; another server names who leads.">propose</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"raft","parameters":{"operation":"read","command":{"instruction":"kv","parameters":{"operation":"get","key":"colour"}}}}' title="A read the leader confirms with a majority first.">read</button>
+            <button class="btn small" type="button" data-fill='{"instruction":"raft","parameters":{"operation":"log","from":1,"limit":25}}' title="A page of what this server holds. The Raft log tab shows it too.">log</button>
             <span class="grp-label">other</span>
             <button class="btn small" type="button" data-fill='{"instruction":"nope","parameters":{}}' title="Shows how the server answers an instruction it does not have">unknown instruction</button>
           </div>
           <div id="cmd-log" aria-live="polite"></div>
+        </div>
+        <div class="dock-body" id="pane-raftlog" role="tabpanel" hidden>
+          <div class="rl-bar">
+            <button class="btn small" type="button" id="rl-newest" title="Follow the end of the log">Newest</button>
+            <button class="btn small" type="button" id="rl-newer" title="Later entries">Newer</button>
+            <button class="btn small" type="button" id="rl-older" title="Earlier entries">Older</button>
+            <span id="rl-where"></span>
+          </div>
+          <div class="feedwrap tablewrap" id="rl-feed"></div>
         </div>
         <div class="dock-body" id="pane-events" role="tabpanel" hidden>
           <ol class="log" id="log"></ol>
@@ -592,6 +629,8 @@ let userView=false,focusMode=false,worldBox={x:0,y:0,w:1000,h:640},dockTab='acti
 const announced=new Set(),convState={},bigState=new Map();
 /* key-value replication: the last summary per swarm, and how many snapshots in a row it has been out of step */
 const kvBy={},kvBad={};
+/* Raft: each swarm's summary from the harness, as the swarm line shows it */
+const raftBy={};
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const hex=()=>Math.random().toString(16).slice(2,10).padEnd(8,'0');
@@ -663,7 +702,7 @@ function netNote(o){
   return [d?d+' ms delay':'',l?l+'% loss':''].filter(Boolean).join(', ');
 }
 /* one short code per command plugin: GS gossip, KV key-value, MU multiply, EX exec; echo is built into every server */
-const PLUGIN_CODE={gossip:'GS',kv:'KV',multiply:'MU',exec:'EX'};
+const PLUGIN_CODE={gossip:'GS',kv:'KV',raft:'RA',multiply:'MU',exec:'EX'};
 const plugins=o=>(o.plugins||[]).filter(p=>p!=='echo');
 const pluginCode=p=>PLUGIN_CODE[p]||p.slice(0,2).toUpperCase();
 function pluginTags(o){
@@ -671,6 +710,29 @@ function pluginTags(o){
   const w=17,gap=3,x0=-((ps.length*w+(ps.length-1)*gap)/2);
   return ps.map((p,i)=>{const c=pluginCode(p),x=x0+i*(w+gap);
     return `<g class="plug pl-${c}"><rect x="${x.toFixed(1)}" y="40" width="${w}" height="11" rx="3"/><text x="${(x+w/2).toFixed(1)}" y="45.5">${esc(c)}</text></g>`;}).join('');
+}
+/* What a Raft server says of itself now, kept short for the rewind history: its role and term, and whether it leads stale. A frozen
+   server cannot be asked, so what it last said is kept and marked: it wakes still believing it. */
+function raftNow(o){
+  if(o.frozen)return o.raftLast&&o.raftLast.role==='LEADER'?{role:'LEADER',term:o.raftLast.term,frozen:true}:null;
+  if(!o.raft||!o.raft.role)return null;
+  return{role:o.raft.role,term:o.raft.term,stale:!!o.raftStale};
+}
+const raftAt=o=>{const h=rewound&&rewound.st[o.id];return h?h[2]:raftNow(o);};
+function raftMark(o){
+  const r=raftAt(o);
+  if(!r||r.role==='FOLLOWER')return '';
+  const y=(51+11/view.k).toFixed(1);
+  if(r.role==='CANDIDATE')return `<text class="rtag candidate" y="${y}">candidate, term ${r.term}</text>`;
+  const cls=r.frozen?'frozen':r.stale?'stale':'';
+  const word=r.frozen?'led':r.stale?'stale leader':'leader';
+  return `<circle class="leadring ${cls}" r="38"/><text class="rtag ${cls}" y="${y}">${word}, term ${r.term}</text>`;
+}
+function raftWords(o){
+  const r=raftAt(o);
+  if(!r)return '';
+  if(r.frozen)return 'led term '+r.term+' when last asked';
+  return (r.stale?'stale leader':r.role.toLowerCase())+' in term '+r.term;
 }
 const selfKey=o=>keyOf(o.id,o.boot);
 const selfE=o=>o.view.get(selfKey(o));
@@ -852,6 +914,23 @@ function setView(o,self,members){
   }
   for(const k of [...o.view.keys()])if(!keep.has(k))o.view.delete(k);
 }
+/* Keeps a Raft swarm's summary, and notes who has come to lead, or stopped: in the events, and as a tick on the timeline to replay from. */
+function noteRaft(sw,announce){
+  const now=sw.raftSummary||null,was=raftBy[sw.name]||null;
+  raftBy[sw.name]=now;
+  if(!now)return;
+  const stale=new Set(now.staleLeaders||[]);
+  for(const s of sw.servers){const o=byId(s.serverId);if(o)o.raftStale=stale.has(s.serverId);}
+  if(!announce||!was)return;
+  const at=Date.now()+TR.offset;
+  const note=(kind,text)=>{ev(kind,text);addMark({t:at,kind:'election',text,seq:'e'+(++TR.localMarks)});};
+  if(now.leader&&(now.leader!==was.leader||now.term!==was.term))note('leader',`${shortId(now.leader)} leads term ${now.term}`);
+  else if(!now.leader&&was.leader)note('suspect',`${sw.name}: no leader`);
+  for(const id of stale)if(!(was.staleLeaders||[]).includes(id))note('suspect',`${shortId(id)} still believes it leads, but the swarm has moved on`);
+  if(now.twoLeadersInTerm!==undefined&&was.twoLeadersInTerm===undefined)note('dead',`${sw.name}: two leaders in term ${now.twoLeadersInTerm}, which Raft must never allow`);
+  if((now.differ||[]).length&&!(was.differ||[]).length)ev('suspect',`${sw.name}: ${now.differ.map(shortId).join(', ')} report a different checkpoint`);
+  for(const id of now.failed||[])if(!(was.failed||[]).includes(id))ev('stopped',`${shortId(id)}: Raft has stopped on a failure`);
+}
 function applySnapshot(snap,first){
   const announce=!first,present=new Set(),names=new Set();
   const netWas=JSON.stringify(netRules);netRules=snap.network||null;
@@ -873,7 +952,12 @@ function applySnapshot(snap,first){
       else{o.gossip=false;o.view=new Map();o.truncated=false;}
       o.kv=s.kv||null;
       o.plugins=s.plugins||[];
+      o.inRaft=!!sw.raft;
+      o.raft=s.raft||null;
+      if(o.raft&&o.raft.role)o.raftLast={role:o.raft.role,term:o.raft.term};
+      else if(!o.up&&!o.frozen)o.raftLast=null;
     }
+    noteRaft(sw,announce);
     const kvNow=sw.kvSync||null,kvWas=kvBy[sw.name]||null;kvBy[sw.name]=kvNow;
     if(kvNow){
       const all=kvNow.inSync===kvNow.replicating;
@@ -1023,12 +1107,13 @@ function renderGraph(){
     let badge='';
     if(sel&&sel!==o&&sel.started&&sel.up){const e=entryFor(sel.view,o);badge=`<circle class="badge b-${e?assess(e):'NONE'}" cx="22" cy="-22" r="7"/>`;}
     const note=ss==='degraded'?netNote(o):'',ps=plugins(o);
-    const tip=`${o.id} · ${STATUS_TIP[ss]}${note?' ('+note+')':''}${ps.length?' · plugins: '+ps.join(', '):''}`;
+    const rw=LIVE?raftWords(o):'';
+    const tip=`${o.id} · ${STATUS_TIP[ss]}${note?' ('+note+')':''}${rw?' · '+rw:''}${ps.length?' · plugins: '+ps.join(', '):''}`;
     const glyph=STATUS_GLYPH[ss]?`<text class="sglyph sg-${ss}" x="-23" y="-22">${STATUS_GLYPH[ss]}</text>`:'';
     const label=ss==='running'?'':`<text class="slab" y="17">${ss}</text>`;
-    top+=`<g class="node st-${st} s-${ss}${sel===o?' sel':''}" data-id="${o.id}" data-key="n-${o.id}" tabindex="0" role="button" aria-label="${o.id}, ${ss}${note?', '+note:''}${k?', sees '+k.c+' of '+k.n+' live servers':''}${ps.length?', plugins '+ps.join(' '):''}" transform="translate(${o.x.toFixed(1)} ${o.y.toFixed(1)})">
+    top+=`<g class="node st-${st} s-${ss}${sel===o?' sel':''}" data-id="${o.id}" data-key="n-${o.id}" tabindex="0" role="button" aria-label="${o.id}, ${ss}${note?', '+note:''}${rw?', '+rw:''}${k?', sees '+k.c+' of '+k.n+' live servers':''}${ps.length?', plugins '+ps.join(' '):''}" transform="translate(${o.x.toFixed(1)} ${o.y.toFixed(1)})">
       <title>${esc(tip)}</title>
-      <circle class="selring" r="42"/>
+      <circle class="selring" r="42"/>${LIVE?raftMark(o):''}
       <circle class="arcbg" r="33"/>
       <circle class="arc" r="33" stroke-dasharray="${(f*C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90)"/>
       <circle class="body" r="26"/>
@@ -1053,6 +1138,7 @@ function renderSwarms(){
   const html=swarms().map(s=>`<section class="swarm"><div class="hd"><h3>${esc(s)}</h3><span class="conv" data-conv="${s}"></span></div>
     <div class="meter"><i data-bar="${s}"></i></div>
     <div class="kvline" data-kv="${s}" hidden></div>
+    <div class="kvline" data-raft="${s}" hidden></div>
     <ul class="chips">${nodes.filter(n=>n.swarm===s).map(n=>`<li><button class="chip st-${state(n)} s-${status(n)}${sel===n?' on':''}" data-act="select" data-id="${n.id}" data-key="c-${n.id}" aria-pressed="${sel===n}" title="${n.id} · ${status(n)}"><span class="dot"></span>${pad(n.n)}</button></li>`).join('')}</ul></section>`).join('');
   setHTML($('#swarms'),html||(LIVE?'<p class="hint" style="border:0">No swarms yet. Enter a name and a number of servers above, then press Start.</p>':''));
   for(const s of swarms()){const c=conv(s),v=c===null?0:Math.round(c*100);
@@ -1068,7 +1154,54 @@ function renderSwarms(){
         line.title=all?'Every server holds the same key-value pairs (same root '+kv.root+')':'Servers whose key-value root differs from the one most share ('+kv.root+') have not settled yet';
       }
     }
+    const rline=$(`[data-raft="${s}"]`),r=raftBy[s];
+    if(rline){
+      rline.hidden=!r;
+      if(r){
+        const look=raftLine(r);
+        rline.textContent=look.text;rline.className='kvline '+look.cls;rline.title=look.title;
+      }
+    }
   }
+}
+/* A Raft swarm in one line. The harness decides who leads and who agrees, so a script and the page mean the same by it. */
+function raftLine(r){
+  const short=id=>id.replace(/^.*-Server-/,'');
+  const stale=r.staleLeaders||[],waiting=r.waiting||[],differ=r.differ||[],failed=r.failed||[];
+  const parts=[`raft: term ${r.term}`,r.leader?`leader ${short(r.leader)}`:'no leader',`commit ${r.commitIndex}`,`agree ${r.agree} of ${r.servers}`];
+  if(stale.length)parts.push(`stale ${stale.map(short).join(', ')}`);
+  if(waiting.length)parts.push(`waiting ${waiting.map(short).join(', ')}`);
+  if(r.twoLeadersInTerm!==undefined)parts.push(`TWO LEADERS IN TERM ${r.twoLeadersInTerm}`);
+  const healthy=r.leader&&!stale.length&&!waiting.length&&r.agree===r.servers;
+  const notes=['Term and leader are the newest leader that can still commit. Commit is the furthest any server has committed. Agree counts the servers that answer and whose checkpoint no others contradict: a server behind has not disagreed. During heavy writes servers rarely report one position at once, so a difference may not show until the writes pause.'];
+  if(differ.length)notes.push('A different checkpoint: '+differ.join(', ')+'.');
+  if(stale.length)notes.push('Stale: '+stale.join(', ')+' believe they lead, but cannot commit anything more.');
+  if(waiting.length)notes.push('Waiting: '+waiting.join(', ')+' have committed something they cannot apply yet.');
+  if(failed.length)notes.push('Failed: '+failed.join(', ')+' have stopped on a failure.');
+  return{text:parts.join(' · '),cls:r.twoLeadersInTerm!==undefined?'bad':healthy?'ok':'warn',title:notes.join(' ')};
+}
+/* the selected server's Raft facts: what it says of itself, then each voter beside it */
+function raftFacts(o){
+  if(!o.inRaft)return '';
+  if(o.frozen)return `<dt>Raft</dt><dd>frozen, so it cannot say${o.raftLast?' (was '+esc(o.raftLast.role.toLowerCase())+' in term '+o.raftLast.term+')':''}</dd>`;
+  const r=o.raft;
+  if(!r)return `<dt>Raft</dt><dd>not answering</dd>`;
+  if(!r.role)return `<dt>Raft</dt><dd>${esc(r.state||'')}${r.failure?': '+esc(r.failure):''}</dd>`;
+  const w=r.waitingFor;
+  return `<dt>Raft role, term</dt><dd>${esc(r.role.toLowerCase())}${o.raftStale?' (stale)':''}, ${r.term}</dd><dt>Believes leads</dt><dd>${r.leader?esc(shortId(r.leader)):'nobody'}</dd><dt>Voted for</dt><dd>${r.votedFor?esc(shortId(r.votedFor)):'nobody'}</dd>`
+    +`<dt>Commit / applied / last</dt><dd>${r.commitIndex} / ${r.appliedIndex} / ${r.lastIndex}</dd><dt>Checkpoint</dt><dd title="${esc(r.checkpointHash||'')}">${r.checkpointIndex?r.checkpointIndex+' · '+esc(String(r.checkpointHash).slice(0,12)):'none yet'}</dd>`
+    +`<dt>Raft sends, failed</dt><dd>${r.sent}, ${r.sendFailures}</dd><dt>Leader changes seen</dt><dd>${r.leaderChanges}</dd>`
+    +(r.applyRetries?`<dt>Apply retries</dt><dd>${r.applyRetries}</dd>`:'')
+    +(w?`<dt>Waiting to apply</dt><dd>${w.index}, ${esc(w.instruction)}: ${esc(w.reason)}</dd>`:'')
+    +(r.failure?`<dt>Failure</dt><dd style="color:var(--bad)">${esc(r.failure)}</dd>`:'');
+}
+function raftVoters(o){
+  if(!o.inRaft)return '';
+  const rows=nodes.filter(n=>n.swarm===o.swarm).map(n=>{
+    const r=n.raft;
+    return `<tr class="${n===o?'':'old'}"><td class="m">${pad(n.n)}</td><td>${r&&r.role?pill(n.raftStale?'STALE_LEADER':r.role):n.frozen?pill('FROZEN'):'—'}</td><td class="r">${r&&r.role?r.term:''}</td><td class="r">${r&&r.role?r.commitIndex:''}</td><td class="r">${r&&r.role?r.appliedIndex:''}</td><td class="m r" title="${esc(r&&r.checkpointHash||'')}">${r&&r.checkpointIndex?r.checkpointIndex+'·'+esc(String(r.checkpointHash).slice(0,4)):''}</td></tr>`;
+  }).join('');
+  return `<table class="voters"><thead><tr><th>Voter</th><th>Role</th><th class="r">Term</th><th class="r">Commit</th><th class="r">Applied</th><th class="r" title="The last checkpoint it reached, and the start of its hash. Two at one position with different hashes have diverged.">Chkpt</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 /* the selected server's key-value facts: what it holds and how its comparisons with other servers have gone */
 function kvFacts(o){
@@ -1086,7 +1219,8 @@ function renderPanel(){
     return;
   }
   const ss=status(o);
-  setHTML($('#insp-head'),`<div class="insp-head"><div class="id">${o.id}</div><div class="pillrow">${pill(worker(o))}${ss!=='running'&&ss.toUpperCase()!==worker(o)?pill(ss.toUpperCase()):''}${pill(o.dep)}</div></div>`);
+  const rolePill=LIVE&&o.raft&&o.raft.role?pill(o.raftStale?'STALE_LEADER':o.raft.role):'';
+  setHTML($('#insp-head'),`<div class="insp-head"><div class="id">${o.id}</div><div class="pillrow">${pill(worker(o))}${ss!=='running'&&ss.toUpperCase()!==worker(o)?pill(ss.toUpperCase()):''}${rolePill}${pill(o.dep)}</div></div>`);
   const k=know(o);
   const noGossip=LIVE&&!o.gossip;
   const facts=noGossip
@@ -1094,7 +1228,7 @@ function renderPanel(){
     :`<dl class="facts"><dt>Main / admin</dt><dd>localhost:${o.main} / ${o.admin}</dd><dt>Boot ID</dt><dd>${o.boot}</dd><dt>Heartbeat</dt><dd>${o.hb}</dd><dt>Rounds</dt><dd>${o.rounds}</dd><dt>Exchanges received</dt><dd>${o.inbound}</dd><dt>Failed outbound</dt><dd>${o.failed}</dd><dt>Isolated</dt><dd>${o.started&&o.isolated?'true':'false'}</dd><dt>Sees live peers</dt><dd>${k?k.c+' of '+k.n:'—'}</dd></dl>`;
   const pluginFacts=LIVE?`<dt>Plugins</dt><dd>${plugins(o).length?plugins(o).map(p=>esc(pluginCode(p))+' '+esc(p)).join(', '):'none besides echo'}</dd>`:'';
   const netFacts=netNote(o)?`<dt>Network</dt><dd>${esc(netNote(o))}</dd>`:ss==='partitioned'?`<dt>Network</dt><dd>cut off by a partition</dd>`:'';
-  setHTML($('#insp-facts'),facts.replace(/<\/dl>$/,pluginFacts+netFacts+kvFacts(o)+'</dl>'));
+  setHTML($('#insp-facts'),facts.replace(/<\/dl>$/,pluginFacts+netFacts+(LIVE?raftFacts(o):'')+kvFacts(o)+'</dl>'));
   const canLeave=o.up&&!o.left&&(!LIVE||o.gossip)&&!actionBusy,canStop=(o.up||o.frozen)&&!actionBusy,canRestart=o.started&&(!o.up||o.left)&&!o.frozen&&!actionBusy,canRemove=!actionBusy;
   const canFreeze=LIVE&&o.up&&!o.frozen&&!actionBusy,canThaw=LIVE&&o.frozen&&!actionBusy;
   const freezeButtons=LIVE?`<button class="btn" data-act="freeze" data-key="a-freeze" ${canFreeze?'':'disabled'} title="Pause the server as a debugger or a long GC pause would: it keeps its connections but answers and does nothing, so its peers see it fall silent">Freeze</button><button class="btn" data-act="thaw" data-key="a-thaw" ${canThaw?'':'disabled'} title="Let the frozen server carry on where it stopped">Thaw</button>`:'';
@@ -1103,7 +1237,9 @@ function renderPanel(){
   const rows=[...o.view.values()].sort((a,b)=>a.id.localeCompare(b.id)||a.boot.localeCompare(b.boot));
   const empty=noGossip?'The gossip plugin is not loaded on this server, or it is not answering.':'No members known yet';
   const more=o.truncated?'<p class="hint" style="border:0">Showing the first page of members only.</p>':'';
-  setHTML($('#insp-table'),`<table><thead><tr><th>Member</th><th>Rated</th>${LIVE?'<th class="r" title="This server\'s calls to that member in the last 12 seconds: answered, then failed">Calls</th>':''}<th class="r">Beat</th><th class="r">Age</th></tr></thead><tbody>${
+  /* a Raft swarm without gossip has no ratings to show, and its voters say more than a table saying so */
+  if(LIVE&&o.inRaft&&noGossip){setHTML($('#insp-table'),raftVoters(o));return;}
+  setHTML($('#insp-table'),`${LIVE?raftVoters(o):''}<table><thead><tr><th>Member</th><th>Rated</th>${LIVE?'<th class="r" title="This server\'s calls to that member in the last 12 seconds: answered, then failed">Calls</th>':''}<th class="r">Beat</th><th class="r">Age</th></tr></thead><tbody>${
     rows.map(e=>{const a=assess(e),cur=byId(e.id),old=cur&&cur.boot&&cur.boot!==e.boot;
       return `<tr class="${old?'old':''}"><td class="m">${e.id.split('-Server-')[0].slice(0,1)}·${e.id.slice(-3)} <span class="old">${e.boot.slice(0,4)}${old?' old':''}</span></td><td>${pill(a)}</td>${LIVE?`<td class="r m">${callsCell(o,e)}</td>`:''}<td class="r">${e.hb}</td><td class="r">${e.id===o.id&&e.boot===o.boot?'self':Math.floor((T-e.adv)/1000)+'s'}</td></tr>`;}).join('')||`<tr><td colspan="${LIVE?5:4}" class="old" style="white-space:normal">${empty}</td></tr>`}</tbody></table>${more}`);
 }
@@ -1130,7 +1266,8 @@ function renderAll(){
     banner.hidden=!partition;
     banner.textContent=PARTITION_NOTE;
   }
-  renderGraph();renderTraffic();renderSwarms();renderPanel();renderLog();renderActivity();renderControls();renderCommand();
+  if(LIVE)keepRaftTab();
+  renderGraph();renderTraffic();renderSwarms();renderPanel();renderLog();renderActivity();renderRaftLog();renderControls();renderCommand();
   const cs=$('#canvas-sel');
   cs.hidden=!(focusMode&&sel);
   if(!cs.hidden)setHTML(cs,`<span>${esc(sel.id)}</span>${pill(worker(sel))}`);
@@ -1212,9 +1349,9 @@ async function ctlPost(path,body,busyText){
 const quote=t=>t.length>90?t.slice(0,90)+'…':t;
 $('#ctl-start').addEventListener('submit',async e=>{
   e.preventDefault();
-  const name=$('#ctl-name').value.trim(),servers=Number($('#ctl-count').value);
-  const j=await ctlPost('/api/swarms',{name,servers},'Starting '+name+' ('+servers+' servers)…');
-  if(j){ctlResult('Started '+name+' with '+j.servers.length+' servers.');$('#ctl-name').value='';}
+  const name=$('#ctl-name').value.trim(),servers=Number($('#ctl-count').value),raft=$('#ctl-raft').checked;
+  const j=await ctlPost('/api/swarms',raft?{name,servers,mode:'raft'}:{name,servers},'Starting '+name+' ('+servers+' servers)…');
+  if(j){ctlResult('Started '+name+' with '+j.servers.length+' servers'+(raft?', as a Raft cluster.':'.'));$('#ctl-name').value='';}
 });
 $('#ctl-stop').addEventListener('click',async()=>{
   const n=$('#ctl-swarm').value;if(!n)return;
@@ -1254,6 +1391,7 @@ $('#ctl-test').addEventListener('submit',async e=>{
 /* the command reference: every command with an example that can be copied, or put straight into the command box */
 const kvReq=p=>'{"instruction":"kv","parameters":'+p+'}';
 const gossipReq=p=>'{"instruction":"gossip","parameters":'+p+'}';
+const raftReq=p=>'{"instruction":"raft","parameters":'+p+'}';
 const REF=[
   {group:'Built in',need:'always available',intro:'Plain text typed into the command box is sent as an echo. Anything starting with { is sent as a request: an instruction and its parameters. The page adds the version and a message ID.',items:[
     {t:'Echo, plain text',d:'Type any text. It is wrapped as an echo request and comes back as "Received: ...".',c:'hello there'},
@@ -1272,6 +1410,14 @@ const REF=[
     {t:'list',d:'Every key on this server, in order, with a count.',c:kvReq('{"operation":"list"}')},
     {t:'status',d:'Whether replication is on, how many pairs and deletion records this server holds, and counters: pushes made and failed, and records received, ignored (not newer) and refused (over a limit). With replication on, the push counter rises with every write.',c:kvReq('{"operation":"status"}')},
     {t:'apply (servers use this)',d:'How servers hand each other records when replication is on, so you do not normally type it. A record is a key, a value (or deleted set to true) and a version: w is milliseconds, c a counter and n the writing server. It is kept only if its version is newer than what this server holds for that key, and the reply counts how many were applied, ignored and refused. With replication off the server refuses it, which is worth seeing.',c:kvReq('{"operation":"apply","records":[{"key":"from-a-peer","value":"hello","version":{"w":1760900000000,"c":0,"n":"manual"},"deleted":false}]}')}]},
+  {group:'raft',need:'needs a Raft swarm: the Raft plugin in --plugins-dir, and Raft ticked under Start a swarm',intro:'On a Raft swarm, writes must go through propose. A kv put sent straight to a server still succeeds, because kv does not change for Raft, but it changes that one server and nothing else, so it no longer holds what the others hold.',items:[
+    {t:'status',d:'What this server says of itself: its role, term, the leader it believes in, its commit and applied positions, its agreement checkpoint, and anything it is waiting to apply.',c:raftReq('{"operation":"status"}')},
+    {t:'propose',d:'The only way to write. Send it to the leader. COMMITTED means committed and applied there, with the command’s result. NOT_LEADER names who to ask instead. REFUSED means do not retry. OUTCOME_UNKNOWN means it may still commit, so read before retrying.',c:raftReq('{"operation":"propose","command":{"instruction":"kv","parameters":{"operation":"put","key":"colour","value":"blue"}}}')},
+    {t:'read',d:'Runs a command on the leader once a majority has confirmed it still leads, without adding to the log. A value read this way is never stale. Only the operations in read.operations may run this way: get, list and status.',c:raftReq('{"operation":"read","command":{"instruction":"kv","parameters":{"operation":"get","key":"colour"}}}')},
+    {t:'read, of a write',d:'Refused, because a write run as a read would reach the leader alone.',c:raftReq('{"operation":"read","command":{"instruction":"kv","parameters":{"operation":"put","key":"colour","value":"red"}}}')},
+    {t:'propose, of a typo',d:'Refused, and never reaches the log: only the instructions in apply.instructions may be proposed.',c:raftReq('{"operation":"propose","command":{"instruction":"kvv","parameters":{"operation":"put","key":"colour","value":"red"}}}')},
+    {t:'log',d:'A page of what this server holds, committed or not. An entry with an empty command is the one a new leader writes on winning. The Raft log tab shows the same.',c:raftReq('{"operation":"log","from":1,"limit":25}')},
+    {t:'bootstrap (the harness uses this)',d:'Gives a server its cluster and voters, once. The harness sends it to each server of a Raft swarm when it starts it, so you do not normally type it. As written it is refused, which shows the error. vote and append are the two requests servers make of one another, shown on the canvas as Votes and Appends.',c:raftReq('{"operation":"bootstrap","clusterId":"example","voters":[]}')}]},
   {group:'math.multiply',need:'needs the example multiply plugin: --plugins-dir .../multiply-plugin/target',items:[
     {t:'multiply',d:'Multiplies two numbers and returns the product.',c:'{"instruction":"math.multiply","parameters":{"a":6,"b":7}}'}]},
   {group:'Errors worth seeing',need:'work on any server',items:[
@@ -1329,6 +1475,15 @@ function renderCommand(){
   }).join('')||'<p class="hint" style="border:0">Nothing sent yet. Choose a server, type a command and press Send. What the server answers, or why it did not, appears here.</p>';
   setHTML($('#cmd-log'),html);
 }
+/* A kv write sent straight to a Raft server succeeds and changes that one server alone, which nothing else says. */
+function directWriteNote(id,text){
+  const o=byId(id);
+  if(!o||!o.inRaft)return '';
+  let asked;try{asked=JSON.parse(text);}catch{return '';}
+  const op=asked&&asked.parameters&&asked.parameters.operation;
+  if(asked.instruction!=='kv'||(op!=='put'&&op!=='delete'))return '';
+  return 'This server is in a Raft cluster, so this changed it alone and it no longer holds what the others hold. A write must go through raft propose.';
+}
 $('#cmd-target').addEventListener('change',e=>{if(e.target.value)select(e.target.value,true);});
 $('#cmd-presets').addEventListener('click',e=>{
   const b=e.target.closest('[data-fill]');if(!b)return;
@@ -1353,6 +1508,8 @@ $('#cmd-form').addEventListener('submit',async e=>{
     const j=await r.json().catch(()=>({}));
     if(r.ok)Object.assign(entry,j);else entry.failure=j.error||('The harness answered HTTP '+r.status);
   }catch{entry.failure='Could not reach the harness.';}
+  const warned=directWriteNote(tg,text);
+  if(warned)entry.note=entry.note?entry.note+' '+warned:warned;
   cmdLog.unshift(entry);if(cmdLog.length>100)cmdLog.pop();
   if(cmdHist[0]!==text){cmdHist.unshift(text);if(cmdHist.length>50)cmdHist.pop();}
   cmdPos=-1;cmdBusy=false;
@@ -1362,7 +1519,7 @@ $('#cmd-form').addEventListener('submit',async e=>{
 const pop=$('#pop');let popFor=null;
 const PANEL_TIP='<p><b>Panel</b> Drag the bar on its top edge to resize it. <b>Expand</b> makes it as tall as possible, and <b>Hide</b> collapses it.</p>';
 const INFO={
-  swarms:()=>'<p><b>Swarm list</b> Each box below is one swarm, with the share of its servers that agree about each other ("in sync"). Click a server number to select it: the inspector, the socket traffic and the Command target all follow the selected server.</p>',
+  swarms:()=>'<p><b>Swarm list</b> Each box below is one swarm, with the share of its servers that agree about each other ("in sync"). Click a server number to select it: the inspector, the socket traffic and the Command target all follow the selected server.</p><p><b>raft:</b> A Raft swarm also has a line giving its term, its leader, how far it has committed, and how many servers agree. It is amber when something is amiss, such as no leader or a stale one. Hover over it for what each part means.</p>',
   find:()=>'<p><b>Find</b> Type part of a server ID, such as <b>003</b> or <b>alpha-Server-003</b>, and press Enter. That server is selected and brought into view.</p>',
   pause:()=>LIVE
     ?'<p><b>Pause updates</b> Stops this page asking the harness for new data, so the picture stops changing. The servers keep running underneath. Press again to resume.</p>'
@@ -1373,11 +1530,12 @@ const INFO={
   addserver:()=>'<p><b>Add server</b> Adds one more simulated server to the selected swarm.</p>',
   canvas:()=>'<p><b>Spacing</b> How far apart the servers of a swarm sit, at least. Drag the slider or press [ and ]; double-click it to go back to the default. The browser remembers it.</p><p><b>Zoom</b> Mouse wheel, the − and + buttons or the − and + keys. Double-click empty canvas to zoom in there.</p><p><b>Pan</b> Drag empty canvas.</p><p><b>Fit</b> Frames every server (key 0). Until you move the view yourself, it refits as servers come and go.</p><p><b>Focus</b> Hides the side panels so the canvas fills the window (key F). Press again to bring them back.</p>',
   actions:()=>'<p><b>Leave gracefully</b> Tells the gossip peers this server is leaving, so they rate it LEFT quickly. It keeps running. Needs gossip.</p><p><b>Stop</b> Closes the server without telling anyone, so its peers rate it SUSPECT and then DEAD. It stays listed.</p><p><b>Restart</b> Starts a stopped server again on the same ports, with a new boot ID.</p><p><b>Remove</b> Takes the server out of the swarm for good. With gossip it announces its departure first. It cannot be restarted.</p><p><b>Freeze</b> Pauses the server as a debugger or a long GC pause would: it keeps its connections but answers and does nothing, so its peers rate it SUSPECT and then DEAD. <b>Thaw</b> lets it carry on where it stopped. Live swarms only.</p>',
-  server:()=>'<p><b>Server</b> Everything about the selected server. The two tags under its ID say whether it is running and whether it has been asked to leave. <b>Main / admin</b> are its two ports.</p><p>With gossip: <b>Boot ID</b> identifies this run of the server (a restart gets a new one), <b>Heartbeat</b> is its own beat count, <b>Rounds</b> the gossip rounds it has run, <b>Exchanges received</b> and <b>Failed outbound</b> its gossip traffic, <b>Isolated</b> whether it has no peers, and <b>Sees live peers</b> how many members it rates ALIVE.</p><p>The table lists every member this server knows and how <b>this server</b> rates it (ALIVE, SUSPECT, DEAD, LEFT), with its heartbeat and seconds since news.</p>',
+  server:()=>'<p><b>Server</b> Everything about the selected server. The two tags under its ID say whether it is running and whether it has been asked to leave. <b>Main / admin</b> are its two ports.</p><p>With gossip: <b>Boot ID</b> identifies this run of the server (a restart gets a new one), <b>Heartbeat</b> is its own beat count, <b>Rounds</b> the gossip rounds it has run, <b>Exchanges received</b> and <b>Failed outbound</b> its gossip traffic, <b>Isolated</b> whether it has no peers, and <b>Sees live peers</b> how many members it rates ALIVE.</p><p>The table lists every member this server knows and how <b>this server</b> rates it (ALIVE, SUSPECT, DEAD, LEFT), with its heartbeat and seconds since news.</p><p>On a Raft swarm: <b>Believes leads</b> is the leader this server thinks there is, which may be out of date. <b>Commit / applied / last</b> are how far its log is agreed, how far it has carried out, and how far it reaches. <b>Checkpoint</b> sums up all it has applied up to a position. The table lists every voter side by side.</p>',
   activity:()=>'<p><b>Socket activity</b> Every request the selected server receives, one row each, read from its log. <b>From</b> names the server that sent it, or clients for a script, the page or a load test; a dash is the harness itself or a call too old to match. In the Conn column, #1234·15 is the 15th request on connection 1234. The numbers above the list count everything since the server started.</p><p><b>Pause feed</b> freezes the list so you can read it, and Resume catches up. Untick <b>Show gossip</b> to hide the constant gossip traffic. Click a line on the canvas to see only the calls along it.</p>'+PANEL_TIP,
-  traffic:()=>'<p><b>Lines</b> Each curved line is one direction of calls: thicker means more of them in the last few seconds, amber or red means some or most failed. Hover over a line for its rate, timings and last call; click it to see those calls in Socket activity.</p><p><b>Dots</b> Each dot is a real call, coloured by kind, and a smaller one is its reply. A hollow dot is waiting for its reply. A red dot was lost, refused or answered with an error, and an amber one timed out. Times are stretched so a call of a few milliseconds can be seen; a slower call still moves more slowly. On a large swarm only so many are drawn, failures first, and the lines show the rest.</p><p><b>Dashed lines</b> are network rules: purple is cut by a partition, amber is slowed or losing requests. A red <b>!</b> means a server’s rating of a peer disagrees with how its calls to it are going.</p><p><b>Clients</b> The box in the corner of a swarm stands for everything outside it. The harness polling its servers is left out.</p><p><b>Replay</b> The page reads the calls twice a second, so it shows them about a second late. <b>Hold</b> stops at this moment, and the slider and speed go back up to a minute, with a tick for each thing done to the swarm; click a tick to play from just before it. Outlines, lines and dots replay; the panels stay on the present.</p>',
+  traffic:()=>'<p><b>Lines</b> Each curved line is one direction of calls: thicker means more of them in the last few seconds, amber or red means some or most failed. Hover over a line for its rate, timings and last call; click it to see those calls in Socket activity.</p><p><b>Dots</b> Each dot is a real call, coloured by kind, and a smaller one is its reply. A hollow dot is waiting for its reply. A red dot was lost, refused or answered with an error, and an amber one timed out. Times are stretched so a call of a few milliseconds can be seen; a slower call still moves more slowly. On a large swarm only so many are drawn, failures first, and the lines show the rest.</p><p><b>Dashed lines</b> are network rules: purple is cut by a partition, amber is slowed or losing requests. A red <b>!</b> means a server’s rating of a peer disagrees with how its calls to it are going.</p><p><b>Clients</b> The box in the corner of a swarm stands for everything outside it. The harness polling its servers is left out.</p><p><b>Votes and Appends</b> are Raft. A vote is a candidate asking for support, so it is seen only around an election. An append is a leader sending entries or a heartbeat, so appends all fan out from whoever leads.</p><p><b>Replay</b> The page reads the calls twice a second, so it shows them about a second late. <b>Hold</b> stops at this moment, and the slider and speed go back up to a minute, with a tick for each thing done to the swarm and each change of Raft leader; click a tick to play from just before it. Outlines, leader marks, lines and dots replay, as the page saw them once a second; the panels stay on the present.</p>',
   trafficTab:()=>'<p><b>Traffic</b> Every call between servers and from clients, newest first, up to the moment the replay is showing. Unlike Socket activity it includes calls that never arrived. The filters above the canvas apply here too. Marks in the list are things done to the swarm.</p><p>Anything listed in red at the top is a server whose rating of a peer disagrees with how its calls to that peer are going, which is how a gray failure shows itself.</p>'+PANEL_TIP,
-  command:()=>'<p><b>Command</b> Sends one command to the chosen server and shows exactly what came back. Plain text is sent as an echo; JSON is sent as a request. <b>Try</b> fills in an example request (echo, the gossip operations, the key-value operations, or an unknown instruction), the up and down arrows recall earlier commands, and <b>Clear</b> empties the history.</p><p><b>gossip</b> and <b>kv</b> commands only work on servers that loaded those plugins; otherwise the server answers UNKNOWN_INSTRUCTION. <b>kv</b> keeps its pairs in each server\u2019s own memory: a key put on one server is not on the others, and it is gone when the server stops.</p>'+PANEL_TIP,
+  command:()=>'<p><b>Command</b> Sends one command to the chosen server and shows exactly what came back. Plain text is sent as an echo; JSON is sent as a request. <b>Try</b> fills in an example request (echo, the gossip operations, the key-value operations, or an unknown instruction), the up and down arrows recall earlier commands, and <b>Clear</b> empties the history.</p><p><b>gossip</b> and <b>kv</b> commands only work on servers that loaded those plugins; otherwise the server answers UNKNOWN_INSTRUCTION. <b>kv</b> keeps its pairs in each server\u2019s own memory: a key put on one server is not on the others, and it is gone when the server stops.</p><p><b>raft</b> On a Raft swarm writes must go through <b>propose</b>. A kv put sent straight to a server changes that server alone. The <b>i</b> beside Try lists every command.</p>'+PANEL_TIP,
+  raftlog:()=>'<p><b>Raft log</b> What the selected server holds, newest first. Amber entries are not committed as far as this server knows, and may yet be replaced. An entry with no command is the one each new leader writes on winning. Compare two servers by selecting each: they hold the same entries up to what they have committed, though one may hold more.</p><p><b>Newest</b> follows the end of the log; <b>Older</b> and <b>Newer</b> stop following and move a page.</p>'+PANEL_TIP,
   events:()=>'<p><b>Events</b> A log of changes this page has noticed: servers starting, stopping or leaving, ratings changing, swarms converging. It starts empty when the page loads.</p>'+PANEL_TIP,
   dock:()=>PANEL_TIP
 };
@@ -1477,8 +1635,10 @@ $('#find').addEventListener('keydown',e=>{
 function showDock(){
   const live=LIVE;
   $('#tab-activity').hidden=!live;$('#tab-traffic').hidden=!live;$('#tab-command').hidden=!live;$('#info-activity').hidden=!live;$('#info-traffic').hidden=!live;$('#info-command').hidden=!live;$('#act-gossip-label').hidden=!(live&&dockTab==='activity'&&dockOpen);$('#act-pause').hidden=!(live&&dockTab==='activity'&&dockOpen);
+  const raft=live&&!!sel&&!!sel.inRaft;
+  $('#tab-raftlog').hidden=!raft;$('#info-raftlog').hidden=!raft;$('#act-raft-label').hidden=!(raft&&dockTab==='activity'&&dockOpen);
   if(!live)dockTab='events';
-  for(const t of['activity','traffic','command','events']){
+  for(const t of['activity','traffic','command','raftlog','events']){
     $('#tab-'+t).setAttribute('aria-selected',dockTab===t);
     $('#pane-'+t).hidden=dockTab!==t;
   }
@@ -1591,7 +1751,54 @@ async function fetchFullView(o){
   }catch{ /* the next poll tries again */ }
   fullBusy=false;
 }
-const refreshSelected=()=>Promise.all([fetchActivity(),fetchFullView(sel)]);
+const refreshSelected=()=>Promise.all([fetchActivity(),fetchFullView(sel),fetchRaftLog()]);
+/* The Raft log tab: one page of the selected server's log, kept at the end of it until the user moves. */
+const RL_PAGE=25,RL={id:null,from:1,follow:true,rows:[],error:'',busy:false,lastAsked:0};
+/* the tab belongs to a server of a Raft swarm, and goes with it */
+function keepRaftTab(){
+  const raft=!!sel&&!!sel.inRaft;
+  if(dockTab==='raftlog'&&!raft)dockTab='activity';
+  if($('#tab-raftlog').hidden===raft)showDock();
+}
+function rlFromForEnd(o){return Math.max(1,((o.raft&&o.raft.lastIndex)||0)-RL_PAGE+1);}
+async function fetchRaftLog(){
+  const o=sel;
+  if(!LIVE||!o||!o.inRaft||paused||RL.busy||!dockOpen||dockTab!=='raftlog')return;
+  if(RL.id!==o.id){RL.id=o.id;RL.follow=true;RL.rows=[];RL.error='';}
+  if(RL.follow)RL.from=rlFromForEnd(o);
+  RL.busy=true;
+  try{
+    const r=await fetch('/api/servers/'+encodeURIComponent(o.id)+'/raft-log?from='+RL.from+'&limit='+RL_PAGE,{cache:'no-store'});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok&&RL.id===o.id){RL.rows=j.entries||[];RL.error='';}else if(!r.ok)RL.error=j.error||('The harness answered HTTP '+r.status);
+  }catch{RL.error='Could not reach the harness.';}
+  RL.busy=false;
+}
+/* a command in a few words, when it is a kv one; the row's title has it whole */
+function commandWords(text){
+  if(!text)return 'no-op: this term’s leader taking office';
+  try{
+    const c=JSON.parse(text),p=c.parameters||{};
+    if(c.instruction==='kv'&&p.key!==undefined)return 'kv '+p.operation+' '+p.key+(p.value!==undefined?' = '+JSON.stringify(p.value):'');
+  }catch{ /* shown as it is */ }
+  return text;
+}
+function renderRaftLog(){
+  if(!LIVE||dockTab!=='raftlog'||!dockOpen||!sel)return;
+  const r=sel.raft,commit=r&&r.commitIndex!==undefined?r.commitIndex:0,applied=r&&r.appliedIndex!==undefined?r.appliedIndex:0,last=r&&r.lastIndex!==undefined?r.lastIndex:0;
+  const rows=[...RL.rows].reverse();
+  const first=RL.rows.length?RL.rows[0].index:0,end=RL.rows.length?RL.rows[RL.rows.length-1].index:0;
+  $('#rl-where').textContent=RL.error?RL.error:(sel.id+': '+(end?first+' to '+end+' of '+last:'nothing held yet')+(RL.follow?', following the end':''));
+  $('#rl-newest').disabled=RL.follow;$('#rl-older').disabled=first<=1;$('#rl-newer').disabled=RL.follow||end>=last;
+  const state=e=>e.index>commit?'not committed':e.index<=applied?'applied':'committed';
+  setHTML($('#rl-feed'),`<table><thead><tr><th class="r">Index</th><th class="r">Term</th><th>State here</th><th>Command</th></tr></thead><tbody>${
+    rows.map(e=>`<tr class="${e.index>commit?'uncommitted':''}${e.command?'':' noop'}"><td class="r m">${e.index}</td><td class="r m">${e.term}</td><td>${state(e)}</td><td class="m cmd" title="${esc(e.command||'')}">${esc(commandWords(e.command))}</td></tr>`).join('')
+    ||`<tr><td colspan="4" class="old" style="white-space:normal">${RL.error?esc(RL.error):'Waiting for the first reply…'}</td></tr>`}</tbody></table>`);
+}
+function rlMove(from,follow){RL.follow=follow;RL.from=from;fetchRaftLog().then(renderRaftLog);}
+$('#rl-newest').addEventListener('click',()=>{if(sel)rlMove(rlFromForEnd(sel),true);});
+$('#rl-older').addEventListener('click',()=>rlMove(Math.max(1,(RL.rows.length?RL.rows[0].index:RL.from)-RL_PAGE),false));
+$('#rl-newer').addEventListener('click',()=>rlMove((RL.rows.length?RL.rows[RL.rows.length-1].index:RL.from)+1,false));
 async function fetchActivity(){
   if(!LIVE||!sel||paused||feedPaused||actBusy||!dockOpen||dockTab!=='activity')return;
   actBusy=true;
@@ -1631,9 +1838,11 @@ function renderActivity(){
     ?`<div><dt>Connections</dt><dd>${c.connections}</dd></div><div><dt>Requests</dt><dd>${c.requests}</dd></div><div><dt>Replied OK</dt><dd>${c.repliesOk}</dd></div><div><dt>Errors</dt><dd>${c.repliesError}</dd></div><div><dt>Aborted</dt><dd>${c.aborted}</dd></div><div><dt>Requests/s</dt><dd>${rate.toFixed(1)}</dd></div>${by?`<div><dt>By instruction</dt><dd style="font-size:13px">${by}</dd></div>`:''}`
     :'<div><dt>Status</dt><dd style="font-size:13px">'+(a.error?esc(a.error):'Waiting for the first reply…')+'</dd></div>');
   setHTML($('#act-spark'),`${sparkline(a.samples)}<span>requests/s<br>last minute</span>`);
-  const showGossip=$('#act-gossip').checked;
+  const showGossip=$('#act-gossip').checked,showRaft=$('#act-raft').checked;
   const pair=pairFilter&&pairFilter.to===sel.id?pairFilter:null;
-  const rows=[...a.rows.values()].reverse().filter(r=>(showGossip||r.instruction!=='gossip')&&(!pair||TR.byMsg.get(r.messageId)===pair.from)).slice(0,100);
+  /* a client's propose or read is also a raft call, so only those another server made are hidden */
+  const fromPeer=r=>{const from=TR.byMsg.get(r.messageId);return !!from&&!from.startsWith('clients:');};
+  const rows=[...a.rows.values()].reverse().filter(r=>(showGossip||r.instruction!=='gossip')&&(showRaft||r.instruction!=='raft'||!fromPeer(r))&&(!pair||TR.byMsg.get(r.messageId)===pair.from)).slice(0,100);
   const never=pair?TR.calls.filter(c=>c.from===pair.from&&c.to===pair.to&&(c.out==='LOST'||c.out==='REFUSED')).length:0;
   setHTML($('#act-pair'),pair?`<div class="pair-note"><span>Only calls from <b>${esc(shortId(pair.from))}</b> to <b>${esc(shortId(pair.to))}</b>.${never?` ${never} more never arrived, so only the Traffic tab shows them.`:''}</span><button class="btn small" type="button" data-act="show-traffic" data-key="p-traffic">Traffic</button><button class="btn small" type="button" data-act="clear-pair" data-key="p-clear">Show all</button></div>`:'');
   const note=(feedPaused?'<p class="hint" style="border:0" role="status">Feed paused: nothing new is read until you press Resume feed. Nothing is lost while it is paused, up to the last 300 events of this server.</p>':'')+(a.error?`<p class="hint" style="border:0" role="status">${esc(a.error)}</p>`:'');
@@ -1642,6 +1851,7 @@ function renderActivity(){
     ||`<tr><td colspan="8" class="old" style="white-space:normal">${pair?'No calls along this line in the last 300 events of this server.':'No connections seen yet. Send something to this server, for example send '+esc(sel.swarm)+' hello.'}</td></tr>`}</tbody></table>${note}`);
 }
 $('#act-gossip').addEventListener('change',renderActivity);
+$('#act-raft').addEventListener('change',renderActivity);
 $('#act-pause').addEventListener('click',()=>{
   feedPaused=!feedPaused;
   $('#act-pause').textContent=feedPaused?'Resume feed':'Pause feed';$('#act-pause').setAttribute('aria-pressed',feedPaused);
@@ -1652,20 +1862,27 @@ $('#act-pause').addEventListener('click',()=>{
    back TR_LAG late, so each is drawn from its start even though it is only known once it has finished. */
 const TR_POLL=500,TR_LAG=1000,TR_KEEP=75000,TR_REWIND=60000,LINK_WINDOW=10000,BELIEF_WINDOW=12000;
 const MAX_LINKS=400,MAX_RULE_LINES=240;
-const TR={available:true,calls:[],pending:[],marks:[],hist:[],byMsg:new Map(),links:new Map(),recent:new Map(),beliefs:new Map(),clientSeen:{},lastSeq:0,offset:0,drawn:0,active:0};
-const trFilter={gossip:true,push:true,compare:true,client:true,other:true};
+const TR={available:true,calls:[],pending:[],marks:[],hist:[],byMsg:new Map(),links:new Map(),recent:new Map(),beliefs:new Map(),clientSeen:{},lastSeq:0,offset:0,drawn:0,active:0,localMarks:0};
+const trFilter={gossip:true,push:true,compare:true,vote:true,append:true,client:true,other:true};
 try{Object.assign(trFilter,JSON.parse(localStorage.getItem('swarm-traffic-filter')||'{}'));}catch{}
 let playT=0,follow=true,holding=false,playRate=1,scrubbing=false,onlySel=false,showRatings=true,pairFilter=null,tipKey=null,tipX=0,tipY=0;
 const liveNow=()=>Date.now()+TR.offset-TR_LAG;
 const swarmOf=id=>id.replace(/-Server-\d+$/,'');
 const shortId=id=>id.startsWith('clients:')?'clients':id.replace(/^(.*)-Server-(\d+)$/,'$1·$2');
 const callName=c=>c.inst+(c.op?' '+c.op:'');
-const KIND_NAME={gossip:'Gossip',push:'KV push',compare:'KV compare',client:'Client',other:'Other'};
+const KIND_NAME={gossip:'Gossip',push:'KV push',compare:'KV compare',vote:'Raft vote',append:'Raft append',client:'Client',other:'Other'};
 function callKind(c){
   if(!c.source)return 'client';
   if(c.instruction==='gossip')return 'gossip';
   if(c.instruction==='kv')return /^sync-/.test(c.operation||'')?'compare':'push';
+  if(c.instruction==='raft'&&(c.operation==='vote'||c.operation==='append'))return c.operation;
   return 'other';
+}
+/* Marks come from the harness and from what the page notices itself, so they are kept in order of time. */
+function addMark(m){
+  let i=TR.marks.length;
+  while(i>0&&TR.marks[i-1].t>m.t)i--;
+  TR.marks.splice(i,0,m);
 }
 function normCall(c){
   return{seq:c.seq,from:c.source||'clients:'+swarmOf(c.target),to:c.target,kind:callKind(c),inst:c.instruction||'?',op:c.operation||'',id:c.messageId||'',
@@ -1691,7 +1908,7 @@ async function fetchTraffic(){
     if(c.id)TR.byMsg.set(c.id,c.from);
     if(c.kind==='client'){const s=swarmOf(c.to);TR.clientSeen[s]=Math.max(TR.clientSeen[s]||0,c.s);}
   }
-  for(const m of j.marks)TR.marks.push({t:m.timeMillis,kind:m.kind,text:m.text,seq:m.seq});
+  for(const m of j.marks)addMark({t:m.timeMillis,kind:m.kind,text:m.text,seq:m.seq});
   TR.lastSeq=j.lastSeq;
   const cut=liveNow()-TR_KEEP;let n=0;
   while(n<TR.calls.length&&TR.calls[n].e<cut){if(TR.calls[n].id)TR.byMsg.delete(TR.calls[n].id);n++;}
@@ -1705,7 +1922,7 @@ async function pollTraffic(){
 }
 /* The states of the servers each time the page read them, so a rewound timeline can draw them as they were. */
 function rememberStates(snap){
-  const st={};for(const o of nodes)st[o.id]=[stateNow(o),statusNow(o)];
+  const st={};for(const o of nodes)st[o.id]=[stateNow(o),statusNow(o),raftNow(o)];
   TR.hist.push({t:Number(snap.takenAtMillis)||Date.now(),st,net:netRules});
   const cut=liveNow()-TR_KEEP;
   while(TR.hist.length&&TR.hist[0].t<cut)TR.hist.shift();
@@ -1798,7 +2015,8 @@ function renderLinks(){
       e={hit,line,d:'',cls:'',sw:0,hw:0,op:0,arrow:false};linkEls.set(l.key,e);
     }
     if(e.d!==g.d){e.d=g.d;e.line.setAttribute('d',g.d);e.hit.setAttribute('d',g.d);}
-    const kind=Object.entries(l.kinds).sort((x,y)=>y[1]-x[1])[0][0],share=l.w?l.badW/l.w:0;
+    /* a line takes the colour of what it carries most, except that an election's few votes would never win against the appends after it */
+    const kind=l.kinds.vote?'vote':Object.entries(l.kinds).sort((x,y)=>y[1]-x[1])[0][0],share=l.w?l.badW/l.w:0;
     const mine=sel&&(l.from===sel.id||l.to===sel.id),isPair=pairFilter&&pairFilter.from===l.from&&pairFilter.to===l.to;
     const cls='tlink tk-'+kind+(share>.5?' bad':share>.05?' shaky':'');
     if(e.cls!==cls){e.cls=cls;e.line.setAttribute('class',cls);}

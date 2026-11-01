@@ -44,7 +44,10 @@ final class SwarmSnapshot {
                 var swarm = new LinkedHashMap<String, Object>();
                 swarm.put("name", name);
                 swarm.put("servers", servers);
-                if (manager.isRaft(name)) { swarm.put("raft", true); }
+                if (manager.isRaft(name)) {
+                    swarm.put("raft", true);
+                    swarm.put("raftSummary", raftSummary(servers));
+                }
                 var kvSummary = kvSync(servers);
                 if (kvSummary != null) { swarm.put("kvSync", kvSummary); }
                 out.add(swarm);
@@ -84,6 +87,92 @@ final class SwarmSnapshot {
         summary.put("root", best);
         return summary;
     }
+
+    /**
+     * A Raft swarm in one line, for the page: who leads, in which term, and how many servers agree. Only servers that answer and are
+     * running count, as a failed one leads nothing whatever it last said.
+     *
+     * <p>A leader is stale when another leads in a newer term, or when a majority has moved past its term, so it can commit nothing more.
+     * One server's term alone says nothing: a server cut off runs its term up with every election it tries, and the leader still commits.
+     *
+     * <p>A checkpoint can be compared only with another at the same position. So a server disagrees when, among those reporting its
+     * position, the most report another hash, and a tie goes to the smaller hash so the page does not flicker. A server behind has not
+     * disagreed. During heavy writes servers rarely report one position at once, so a difference may not show until the writes pause.
+     */
+    static Map<String, Object> raftSummary(List<Map<String, Object>> servers) {
+        var running = new ArrayList<Map<String, Object>>();
+        var failed = new ArrayList<String>();
+        var waiting = new ArrayList<String>();
+        for (var server : servers) {
+            if (!Boolean.TRUE.equals(server.get("alive")) || !(server.get("raft") instanceof Map<?, ?> raft)) { continue; }
+            String id = (String) server.get("serverId");
+            if ("failed".equals(raft.get("state"))) { failed.add(id); }
+            if (!"running".equals(raft.get("state"))) { continue; }
+            if (raft.containsKey("waitingFor")) { waiting.add(id); }
+            running.add(server);
+        }
+        long highestTerm = 0, highestCommit = 0, newestLeaderTerm = -1;
+        var leaders = new java.util.TreeMap<String, Long>();
+        var leadersOfTerm = new java.util.HashMap<Long, Integer>();
+        for (var server : running) {
+            var raft = (Map<?, ?>) server.get("raft");
+            long term = number(raft, "term");
+            highestTerm = Math.max(highestTerm, term);
+            highestCommit = Math.max(highestCommit, number(raft, "commitIndex"));
+            if ("LEADER".equals(raft.get("role"))) {
+                leaders.put((String) server.get("serverId"), term);
+                leadersOfTerm.merge(term, 1, Integer::sum);
+                newestLeaderTerm = Math.max(newestLeaderTerm, term);
+            }
+        }
+        String leader = null;
+        var stale = new ArrayList<String>();
+        for (var candidate : leaders.entrySet()) {
+            long term = candidate.getValue();
+            long past = running.stream().filter(server -> number((Map<?, ?>) server.get("raft"), "term") > term).count();
+            if (term < newestLeaderTerm || past * 2 > servers.size()) { stale.add(candidate.getKey()); }
+            else if (leader == null) { leader = candidate.getKey(); }
+        }
+        var differ = checkpointsThatDiffer(running);
+        var summary = new LinkedHashMap<String, Object>();
+        summary.put("servers", servers.size());
+        summary.put("term", leader != null ? leaders.get(leader) : highestTerm);
+        summary.put("leader", leader);
+        summary.put("staleLeaders", stale);
+        summary.put("commitIndex", highestCommit);
+        summary.put("agree", running.size() - differ.size());
+        summary.put("differ", differ);
+        summary.put("waiting", waiting);
+        summary.put("failed", failed);
+        leadersOfTerm.entrySet().stream().filter(entry -> entry.getValue() > 1).map(Map.Entry::getKey).max(Long::compare)
+                .ifPresent(term -> summary.put("twoLeadersInTerm", term));
+        return summary;
+    }
+
+    /** Those whose hash is not the one most servers report for the same position. */
+    private static List<String> checkpointsThatDiffer(List<Map<String, Object>> running) {
+        var byPosition = new java.util.HashMap<Long, java.util.TreeMap<String, Integer>>();
+        for (var server : running) {
+            var raft = (Map<?, ?>) server.get("raft");
+            if (number(raft, "checkpointIndex") > 0 && raft.get("checkpointHash") instanceof String hash) {
+                byPosition.computeIfAbsent(number(raft, "checkpointIndex"), position -> new java.util.TreeMap<>()).merge(hash, 1, Integer::sum);
+            }
+        }
+        var differ = new ArrayList<String>();
+        for (var server : running) {
+            var raft = (Map<?, ?>) server.get("raft");
+            var counts = byPosition.get(number(raft, "checkpointIndex"));
+            if (counts == null || !(raft.get("checkpointHash") instanceof String hash)) { continue; }
+            String reference = null;
+            for (var entry : counts.entrySet()) {
+                if (reference == null || entry.getValue() > counts.get(reference)) { reference = entry.getKey(); }
+            }
+            if (!hash.equals(reference)) { differ.add((String) server.get("serverId")); }
+        }
+        return differ;
+    }
+
+    private static long number(Map<?, ?> values, String name) { return values.get(name) instanceof Number number ? number.longValue() : 0; }
 
     /** The gossip server's whole member list, followed page by page; a page holds at most 32 members. */
     @SuppressWarnings("unchecked")

@@ -158,8 +158,8 @@ same for `kv-plugin`, then:
 mvn compile exec:java "-Dexec.args=--plugins-dir ../socket-server-threadpool/plugins/kv-plugin/target --plugins-dir ../socket-server-threadpool/plugins/raft-plugin/target"
 ```
 
-`start consensus 5 raft` starts five servers and tells each who the others are. A server not started this way stays idle, however many plugins are loaded. In the page, Raft's
-calls appear under Other for now. A write goes to the leader, and a follower answers with where to find it:
+`start consensus 5 raft` starts five servers and tells each who the others are, and so does ticking Raft under Start a swarm in the page. A server not started this way stays idle,
+however many plugins are loaded. A write goes to the leader, and a follower answers with where to find it:
 
 ```text
 call consensus-Server-001 {"instruction":"raft","parameters":{"operation":"propose","command":{"instruction":"kv","parameters":{"operation":"put","key":"colour","value":"blue"}}}}
@@ -172,6 +172,18 @@ a Raft swarm's servers, so other swarms in the same harness can keep it on.
 
 `POST /api/swarms` with `"mode":"raft","without":"kv"` starts a Raft swarm without that plugin, so commands for it commit and wait, and `POST /api/servers/<id>/restart-with-all-plugins`
 then activates it on one server. The console has no command for this.
+
+The page shows a Raft swarm like this:
+
+- **On the canvas**, a server that believes it leads has a ring and a label with its term. A **stale leader**, one that believes it leads after another has taken over or a majority has moved past its term, is dashed amber and says so. A frozen leader cannot be asked, so it keeps what it last said, in grey.
+- **Under the swarm**, a line such as `raft: term 7 · leader 003 · commit 412 · agree 5 of 5`, amber when something is amiss. Agree counts the servers that answer and whose checkpoint no others contradict. A checkpoint can be compared only with another at the same position, so a server behind has not disagreed, and during heavy writes a difference may not show until the writes pause. The snapshot's `raftSummary` holds what the line says.
+- **In the inspector**, what the selected server says of itself, with every voter side by side.
+- **In the Raft log tab**, a page of what that server holds, read with `GET /api/servers/<id>/raft-log?from=<n>&limit=<n>`. This is asked as the harness, so looking does not show as a client's call.
+- **Votes and Appends** have their own filter chips. A line that carried a vote in the last ten seconds takes the vote's colour, so an election stands out from the appends after it.
+- **In a replay**, leader marks go back with the rest, and each change of leader is a tick on the timeline. They are as the page saw them, once a second.
+- **In the Command tab**, the reference and the Try buttons cover `raft`, and a `kv` write sent straight to a server of a Raft swarm gets a warning: it succeeds, and changes that one server alone.
+
+`scripts/compare-split.groovy` runs one split on a last-writer-wins swarm and a Raft swarm at once, to watch here.
 
 ## Swarm UI
 

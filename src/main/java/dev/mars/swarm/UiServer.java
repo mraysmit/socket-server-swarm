@@ -29,6 +29,7 @@ public final class UiServer implements AutoCloseable {
     private static final Pattern COMMAND_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/command");
     private static final Pattern MEMBERS_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/members");
     private static final Pattern ACTIVITY_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/activity");
+    private static final Pattern RAFT_LOG_PATH = Pattern.compile("/api/servers/([A-Za-z][A-Za-z0-9._-]*-Server-\\d{3})/raft-log");
     private static final Pattern SWARM_ACTION_PATH = Pattern.compile("/api/swarms/([A-Za-z][A-Za-z0-9._-]*)/(stop|send|test|servers)");
     private static final int MAX_BODY = 8192;
     /** The most calls one reading of the log returns; the page keeps up by reading twice a second. */
@@ -298,6 +299,8 @@ public final class UiServer implements AutoCloseable {
         if (ACTION_PATH.matcher(path).matches() || COMMAND_PATH.matcher(path).matches()) { reply(exchange, 405, "text/plain", "Only POST is supported here"); return; }
         var members = MEMBERS_PATH.matcher(path);
         if (members.matches()) { fullMembers(exchange, manager, members.group(1)); return; }
+        var raftLog = RAFT_LOG_PATH.matcher(path);
+        if (raftLog.matches()) { raftLog(exchange, manager, raftLog.group(1)); return; }
         var matcher = ACTIVITY_PATH.matcher(path);
         if (!matcher.matches()) { reply(exchange, 404, "application/json", error("Not found")); return; }
         String serverId = matcher.group(1);
@@ -329,6 +332,30 @@ public final class UiServer implements AutoCloseable {
         }
     }
 
+    /** {@code GET /api/servers/<id>/raft-log?from=1&limit=25}: a page of what one server holds. It is asked as the harness, so looking does not show as a client's call. */
+    private void raftLog(HttpExchange exchange, SwarmManager manager, String serverId) throws IOException {
+        var endpoint = manager.list().values().stream().flatMap(java.util.List::stream)
+                .filter(e -> e.serverId().equals(serverId)).findFirst();
+        if (endpoint.isEmpty()) { reply(exchange, 404, "application/json", error("Unknown server: " + serverId)); return; }
+        if (!manager.inRaftSwarm(serverId)) { reply(exchange, 409, "application/json", error(serverId + " is not in a Raft swarm")); return; }
+        if (manager.frozen(serverId)) { reply(exchange, 409, "application/json", error(serverId + " is frozen, so it cannot say")); return; }
+        String query = exchange.getRequestURI().getRawQuery();
+        try {
+            var parameters = new java.util.LinkedHashMap<String, Object>();
+            parameters.put("operation", "log");
+            parameters.put("from", numberParameter(query, "from", 1));
+            parameters.put("limit", numberParameter(query, "limit", 25));
+            var answer = manager.execute(endpoint.get(), "raft", parameters);
+            if (!"OK".equals(answer.status())) {
+                reply(exchange, 400, "application/json", error(answer.error() == null ? "The server refused" : answer.error().message()));
+                return;
+            }
+            reply(exchange, 200, "application/json; charset=utf-8", Json.write(answer.result()));
+        } catch (IOException notAnswering) {
+            reply(exchange, 502, "application/json", error(notAnswering.getMessage()));
+        }
+    }
+
     /** {@code GET /api/traffic?after=<seq>}: the calls and marks since then, and every call still in flight. */
     private void traffic(HttpExchange exchange) throws IOException {
         if (!exchange.getRequestURI().getPath().equals("/api/traffic")) { reply(exchange, 404, "application/json", error("Not found")); return; }
@@ -349,13 +376,15 @@ public final class UiServer implements AutoCloseable {
 
     private void mark(String kind, String text) { if (calls != null) { calls.mark(kind, text); } }
 
-    private static long afterParameter(String query) {
+    private static long afterParameter(String query) { return numberParameter(query, "after", 0); }
+
+    private static long numberParameter(String query, String name, long fallback) {
         if (query != null) {
             for (String pair : query.split("&")) {
-                if (pair.startsWith("after=") && pair.substring(6).matches("[0-9]{1,18}")) { return Long.parseLong(pair.substring(6)); }
+                if (pair.startsWith(name + "=") && pair.substring(name.length() + 1).matches("[0-9]{1,18}")) { return Long.parseLong(pair.substring(name.length() + 1)); }
             }
         }
-        return 0;
+        return fallback;
     }
 
     private static String error(String message) throws IOException {

@@ -88,8 +88,9 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | [chaos/raft-kv-restart-all.groovy](chaos/raft-kv-restart-all.groovy) | Every server stopped and restarted gets all its kv data back, though kv itself keeps nothing. |
 | [chaos/raft-kv-late.groovy](chaos/raft-kv-late.groovy) | kv commands commit with kv not loaded. Restarting servers one at a time with it, each catches up, and they all agree. |
 | [chaos/history-checker.groovy](chaos/history-checker.groovy) | That the history checker works: hand-written histories whose answers are known, and violations found in last-writer-wins replication through a split. |
+| [compare-split.groovy](compare-split.groovy) | One split on a last-writer-wins swarm and a Raft swarm at once, with clients on both and the same two writes to one key on each. Both sides of the first take them and one is lost; the smaller side of the second refuses, and nothing acknowledged is lost. It reports what each did, and leaves both swarms running to look at. Open the page while it runs. |
 
-The Raft scripts start their own swarms and stop them at the end, except `raft-kv` unless told to. They need the Raft plugin in the harness's `--plugins-dir`, and the `raft-kv` scripts need kv too. `chaos/history-checker` needs gossip, kv and `--kv-replicate`.
+The Raft scripts start their own swarms and stop them at the end, except `raft-kv` and `compare-split` unless told to. They need the Raft plugin in the harness's `--plugins-dir`, and the `raft-kv` scripts need kv too. `chaos/history-checker` needs gossip, kv and `--kv-replicate`, and `compare-split` needs all of those and Raft.
 
 `lib/HistoryChecker.groovy` decides whether a history of client operations could have come from one copy of the data. It checks each key by itself, each write must write a value of its own, and it allows a write of unknown outcome to have taken effect at any time after it was made, or never. If a key defeats its search, it reports that key as undecided, which fails the check and is not taken as a pass.
 

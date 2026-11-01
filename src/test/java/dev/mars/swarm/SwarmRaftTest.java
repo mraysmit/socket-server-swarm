@@ -120,6 +120,91 @@ class SwarmRaftTest {
         }
     }
 
+    @Test void theSnapshotSumsUpARaftSwarmAndNoOtherForThePage() throws Exception {
+        try (var manager = raftOnly()) {
+            var servers = manager.startRaft("consensus", 3);
+            manager.start("plain", 1);
+            var leader = leaderAmong(manager, servers);
+            var root = Json.read(Json.write(SwarmSnapshot.take(manager)));
+            var byName = new LinkedHashMap<String, com.fasterxml.jackson.databind.JsonNode>();
+            root.get("swarms").forEach(swarm -> byName.put(swarm.get("name").asText(), swarm));
+            var summary = byName.get("consensus").get("raftSummary");
+            assertEquals(leader, summary.get("leader").asText());
+            assertEquals(3, summary.get("servers").asInt());
+            assertEquals(3, summary.get("agree").asInt());
+            assertFalse(byName.get("plain").has("raftSummary"));
+        }
+    }
+
+    @Test void aLeaderCutOffOnTheSmallerSideIsSummedUpAsStaleOnceTheOtherSideElects() throws Exception {
+        try (var manager = raftOnly()) {
+            var servers = manager.startRaft("consensus", 3);
+            var old = leaderAmong(manager, servers);
+            var others = servers.stream().map(ServerEndpoint::serverId).filter(id -> !id.equals(old)).toList();
+            manager.network().partition(List.of(List.of(old), others));
+            await("the summary calls the old leader stale", () -> {
+                try {
+                    var summary = Json.read(Json.write(SwarmSnapshot.take(manager))).get("swarms").get(0).get("raftSummary");
+                    return others.contains(summary.get("leader").asText()) && summary.get("staleLeaders").toString().contains(old);
+                } catch (IOException notYet) { return false; }
+            });
+            manager.network().heal();
+            await("it is a follower again, and nothing is stale", () -> {
+                try {
+                    var summary = Json.read(Json.write(SwarmSnapshot.take(manager))).get("swarms").get(0).get("raftSummary");
+                    return summary.get("staleLeaders").isEmpty() && summary.get("agree").asInt() == 3;
+                } catch (IOException notYet) { return false; }
+            });
+        }
+    }
+
+    @Test void thePageCanReadAPageOfOneServersLogWithoutShowingAsAClientsCall() throws Exception {
+        var recorder = new SocketActivity();
+        try (var ignored = recorder.install(); var manager = raftOnly();
+             var calls = new CallLog(manager.network()::serverAt).install(); var ui = new UiServer(manager, 0, recorder, calls)) {
+            recorder.reportTo(calls);
+            manager.connections().reportSending(calls::harnessRequest);
+            var servers = manager.startRaft("consensus", 1);
+            var id = servers.getFirst().serverId();
+            var leader = leaderAmong(manager, servers);
+            propose(manager, leader, "first");
+            propose(manager, leader, "second");
+            var http = HttpClient.newHttpClient();
+            var base = "http://localhost:" + ui.port() + "/api/servers/" + id + "/raft-log";
+            Thread.sleep(200); // A server logs a reply only after sending it, so its line may still be on its way.
+            long before = calls.view(0, 1000).calls().size();
+            var page = http.send(HttpRequest.newBuilder(URI.create(base + "?from=2&limit=1")).GET().build(), HttpResponse.BodyHandlers.ofString());
+            Thread.sleep(200);
+            assertEquals(200, page.statusCode(), page.body());
+            var entries = Json.read(page.body()).get("entries");
+            assertEquals(1, entries.size());
+            assertEquals(2, entries.get(0).get("index").asInt());
+            assertTrue(entries.get(0).get("command").asText().contains("first"), page.body());
+            assertEquals(before, calls.view(0, 1000).calls().size(), "Looking at the log is not a client's call");
+            assertEquals(3, Json.read(http.send(HttpRequest.newBuilder(URI.create(base)).GET().build(), HttpResponse.BodyHandlers.ofString()).body()).get("entries").size(),
+                    "From the start, when not told otherwise");
+            assertEquals(400, http.send(HttpRequest.newBuilder(URI.create(base + "?limit=100000")).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode(), "The plugin's limit stands");
+        }
+    }
+
+    @Test void aLogPageIsRefusedPlainlyForAServerThatCannotGiveOne() throws Exception {
+        try (var manager = raftOnly(); var ui = new UiServer(manager, 0)) {
+            var plain = manager.start("plain", 1).getFirst().serverId();
+            var raftServer = manager.startRaft("consensus", 1).getFirst().serverId();
+            var http = HttpClient.newHttpClient();
+            var base = "http://localhost:" + ui.port() + "/api/servers/";
+            assertEquals(404, http.send(HttpRequest.newBuilder(URI.create(base + "nobody-Server-001/raft-log")).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(409, http.send(HttpRequest.newBuilder(URI.create(base + plain + "/raft-log")).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            manager.freezeServer(raftServer);
+            var frozen = http.send(HttpRequest.newBuilder(URI.create(base + raftServer + "/raft-log")).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(409, frozen.statusCode(), "Asking would only wait out a timeout");
+            assertTrue(frozen.body().contains("frozen"), frozen.body());
+            manager.thawServer(raftServer);
+            manager.stopServer(raftServer);
+            assertEquals(502, http.send(HttpRequest.newBuilder(URI.create(base + raftServer + "/raft-log")).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+        }
+    }
+
     @Test void aSwarmOfTheLoadedPluginButNotStartedAsRaftStaysIdle() throws Exception {
         try (var manager = raftOnly()) {
             var plain = manager.start("plain", 1).getFirst();
