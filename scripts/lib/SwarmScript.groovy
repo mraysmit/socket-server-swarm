@@ -211,6 +211,105 @@ abstract class SwarmScript extends Script {
 
     Object kv(String serverId, Map parameters) { call(serverId, 'kv', parameters) }
 
+    // ---- Raft -----------------------------------------------------------------------------------------------------
+
+    /** Starts a swarm whose servers form a Raft cluster, which needs the Raft plugin in the harness's --plugins-dir. */
+    List<String> startRaft(String name, int count) {
+        def started = request('POST', '/api/swarms', [name: name, servers: count, mode: 'raft']).servers
+        log "Started Raft swarm ${name} | servers=${started}"
+        started as List<String>
+    }
+
+    Map raftStatus(String serverId) { call(serverId, 'raft', [operation: 'status']) as Map }
+
+    /** Asks one server to commit a command. The reply's status is COMMITTED, NOT_LEADER, REFUSED or OUTCOME_UNKNOWN. */
+    Map propose(String serverId, Map command) { call(serverId, 'raft', [operation: 'propose', command: command]) as Map }
+
+    /** Every entry a server holds, committed or not. */
+    List<Map> raftLog(String serverId) {
+        def all = []
+        while (true) {
+            List<Map> page = call(serverId, 'raft', [operation: 'log', from: all.size() + 1, limit: 100]).entries as List<Map>
+            if (!page) { return all }
+            all.addAll(page)
+        }
+    }
+
+    /** The server that says it leads in the highest term, among those up and given, or null. A frozen server is not asked, and is not up. */
+    String leader(String name, Collection<String> among = null) {
+        def leading = servers(name).findAll { it.alive && it.raft?.role == 'LEADER' && (among == null || it.serverId in among) }
+        leading ? leading.max { it.raft.term as long }.serverId as String : null
+    }
+
+    /** Waits for a leader, returning who, or null. */
+    String awaitLeader(String name, long timeoutMillis = 15_000, Collection<String> among = null) {
+        String found = null
+        waitFor("${name} has a leader", timeoutMillis) { (found = leader(name, among)) != null }
+        found
+    }
+
+    /** Proposes to whoever leads, retrying as a client must, until it commits or time runs out. Returns the last answer. */
+    Map proposeToLeader(String name, Map command, long timeoutMillis = 15_000, Collection<String> among = null) {
+        long deadline = System.currentTimeMillis() + timeoutMillis
+        Map answer = [status: 'NO_LEADER']
+        while (System.currentTimeMillis() < deadline) {
+            String current = leader(name, among)
+            if (current) {
+                try { answer = propose(current, command) }
+                catch (Exception notAnswering) { answer = [status: 'NO_ANSWER', reason: notAnswering.message] }
+                if (answer.status == 'COMMITTED') { return answer }
+            }
+            Thread.sleep(100)
+        }
+        answer
+    }
+
+    /** Waits until every server given, by default all up, has committed at least this far. */
+    boolean awaitCommitted(String name, long index, long timeoutMillis = 15_000, Collection<String> among = null) {
+        waitFor("${name} has committed ${index} everywhere", timeoutMillis) {
+            def up = servers(name).findAll { it.alive && (among == null || it.serverId in among) }
+            up && up.every { (it.raft?.commitIndex ?: 0) as long >= index }
+        }
+    }
+
+    /** Two servers saying they lead one term is the one thing Raft must never allow, so scripts look whenever they can. */
+    boolean checkOneLeaderPerTerm(String name) {
+        def leaders = servers(name).findAll { it.alive && it.raft?.role == 'LEADER' }.groupBy { it.raft.term }
+        check leaders.values().every { it.size() == 1 }, "no term of ${name} has two leaders"
+    }
+
+    /** Every server up holds the same entries as far as they have all committed. */
+    boolean checkLogsAgree(String name) {
+        def up = servers(name).findAll { it.alive }
+        long agreed = up.collect { (it.raft?.commitIndex ?: 0) as long }.min() ?: 0
+        def prefixes = up.collect { raftLog(it.serverId as String).take((int) agreed) }
+        check prefixes.toSet().size() == 1, "every server of ${name} holds the same ${agreed} committed entries"
+    }
+
+    /** Commits one command per position it returns, naming it so that it can be looked for later. Fails a check if one does not commit. */
+    Map<Long, String> commitNotes(String name, String label, int count, Collection<String> among = null) {
+        def committed = [:] as LinkedHashMap<Long, String>
+        count.times { i ->
+            String note = key("${label}-${i}")
+            Map answer = proposeToLeader(name, [instruction: 'note', parameters: [note: note]], 15_000, among)
+            if (check(answer.status == 'COMMITTED', "${note} commits (${answer.status}${answer.reason ? ': ' + answer.reason : ''})")) {
+                committed[answer.index as long] = note
+            }
+        }
+        committed
+    }
+
+    /** Every server up holds each of these at the position it was committed at. */
+    boolean checkHeldEverywhere(String name, Map<Long, String> committed) {
+        if (!committed) { return true }
+        if (!check(awaitCommitted(name, committed.keySet().max()), "every server of ${name} commits all of them")) { return false }
+        boolean all = servers(name).findAll { it.alive }.every { server ->
+            def log = raftLog(server.serverId as String)
+            committed.every { index, note -> log[(int) index - 1]?.command?.contains(note) }
+        }
+        check all, "every server of ${name} holds all ${committed.size()} committed entries where they were committed"
+    }
+
     /** A key for this run only: {@code key('split')} is {@code split-<runId>}. The store keeps keys across runs. */
     String key(String name) { "${name}-${runId}" }
 

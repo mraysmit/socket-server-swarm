@@ -12,7 +12,7 @@ import java.util.Locale;
 public final class SwarmMain {
     public static final String HELP = """
             Swarm commands:
-              start <name> <servers>           Start 1-100 servers concurrently on automatic ports
+              start <name> <servers> [raft]    Start 1-100 servers concurrently on automatic ports; raft makes them a cluster
               add <name> [servers]             Add servers (default 1) to a running swarm
               call <id> <text or JSON>         Send one command to one server and show the raw reply or error
               list                             List all swarms and endpoints
@@ -154,8 +154,11 @@ public final class SwarmMain {
             try {
                 switch (words[0].toLowerCase(Locale.ROOT)) {
                     case "start" -> {
-                        require(words, 3, "start <name> <servers>");
-                        var endpoints = manager.start(words[1], number(words[2], "Server count"));
+                        if ((words.length != 3 && words.length != 4) || (words.length == 4 && !words[3].equalsIgnoreCase("raft"))) {
+                            throw new IllegalArgumentException("Usage: start <name> <servers> [raft]");
+                        }
+                        var endpoints = words.length == 4 ? manager.startRaft(words[1], number(words[2], "Server count"))
+                                : manager.start(words[1], number(words[2], "Server count"));
                         output.println("Swarm started | name=" + words[1] + " | servers=" + endpoints.size());
                         endpoints.forEach(output::println);
                     }

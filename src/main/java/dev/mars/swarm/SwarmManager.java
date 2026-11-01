@@ -31,6 +31,8 @@ import java.util.function.IntConsumer;
 /** Owns named groups of real socket servers, all hosted in the harness JVM. */
 public final class SwarmManager implements AutoCloseable {
     public static final int MAX_SERVERS_PER_SWARM = 100;
+    /** Every server of a Raft swarm votes, and more voters only slow it. */
+    public static final int MAX_RAFT_SERVERS = 9;
     private static final java.util.regex.Pattern SERVER_ID = java.util.regex.Pattern.compile("(.+)-Server-(\\d{3})");
     private final Map<String, List<ServerInstance>> swarms = new LinkedHashMap<>();
     private final List<Path> pluginDirectories;
@@ -39,6 +41,8 @@ public final class SwarmManager implements AutoCloseable {
     private final boolean kvReplicate;
     private KvConfigFile kvFile;
     private GossipConfigFile gossipFile;
+    private RaftConfigFile raftFile;
+    private final java.util.Set<String> raftSwarms = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final ConnectionPool connections = new ConnectionPool();
     private final NetworkChaos network = new NetworkChaos(this::list);
     private volatile boolean closed;
@@ -71,14 +75,72 @@ public final class SwarmManager implements AutoCloseable {
     /** The network between this harness's servers: partitions, delay and loss, for chaos experiments. */
     NetworkChaos network() { return network; }
 
-    public static final int MAX_RAFT_SERVERS = 9;
+    /**
+     * Starts a swarm whose servers form a Raft cluster: every one a voter, from the moment each is told so. The plugin is loaded on
+     * every server of the harness, and stays idle on any not told. Servers keep their logs under a directory this harness owns, through
+     * restarts, until the swarm is stopped. The voters are fixed, so a Raft swarm refuses to be added to or removed from. With key-value
+     * replication on for the harness, it is off for these servers, because Raft and kv's own replication at once would be silently wrong.
+     */
+    public synchronized List<ServerEndpoint> startRaft(String name, int count) throws IOException {
+        ensureOpen();
+        if (count < 1 || count > MAX_RAFT_SERVERS) { throw new IllegalArgumentException("A Raft swarm holds from 1 to " + MAX_RAFT_SERVERS + " servers"); }
+        synchronized (swarms) {
+            if (swarms.containsKey(name)) { throw new IllegalArgumentException("Swarm already exists: " + name); }
+        }
+        if (raftFile == null) { raftFile = RaftConfigFile.open(); }
+        if (kvReplicate) {
+            if (kvFile == null) { kvFile = KvConfigFile.open(); }
+            kvFile.keepLocal(name, count);
+        }
+        boolean started = false;
+        try {
+            var endpoints = start(name, count);
+            started = true;
+            raftSwarms.add(name);
+            bootstrap(name, endpoints);
+            return endpoints;
+        } catch (IOException | RuntimeException failed) {
+            try {
+                if (started) { stop(name); }
+                else if (kvFile != null) { kvFile.forget(name); }
+            } catch (IOException | RuntimeException cleanup) { failed.addSuppressed(cleanup); }
+            throw failed;
+        }
+    }
 
-    /** Stub: replaced once the tests have been seen to fail. */
-    public synchronized List<ServerEndpoint> startRaft(String name, int count) throws IOException { return start(name, count); }
+    private void bootstrap(String name, List<ServerEndpoint> servers) throws IOException {
+        var voters = new ArrayList<Map<String, Object>>();
+        for (var server : servers) { voters.add(Map.of("id", server.serverId(), "host", "127.0.0.1", "port", server.port())); }
+        var clusterId = name + "-" + UUID.randomUUID();
+        for (var server : servers) {
+            var reply = execute(server, "raft", Map.of("operation", "bootstrap", "clusterId", clusterId, "voters", voters));
+            if (reply.error() == null) { continue; }
+            if (reply.error().code().name().equals("UNKNOWN_INSTRUCTION")) {
+                throw new IOException("The Raft plugin is not loaded: start the harness with --plugins-dir pointing at it");
+            }
+            throw new IOException("Could not bootstrap " + server.serverId() + ": " + reply.error().message());
+        }
+    }
 
-    public boolean isRaft(String swarm) { return false; }
+    public boolean isRaft(String swarm) { return raftSwarms.contains(swarm); }
 
-    RaftConfigFile raftFile() { return null; }
+    /** Whether this server belongs to a Raft swarm, so there is something to ask it. */
+    boolean inRaftSwarm(String serverId) {
+        var id = SERVER_ID.matcher(serverId);
+        return id.matches() && isRaft(id.group(1));
+    }
+
+    RaftConfigFile raftFile() { return raftFile; }
+
+    private void refuseIfRaft(String swarm) {
+        if (isRaft(swarm)) { throw new IllegalStateException("The voters of a Raft swarm are fixed for now, so " + swarm + " cannot gain or lose a server"); }
+    }
+
+    private void forgetRaftSwarm(String name, List<ServerInstance> servers) throws IOException {
+        if (kvFile != null) { kvFile.forget(name); }
+        if (!raftSwarms.remove(name)) { return; }
+        for (var server : servers) { raftFile.forgetServer(server.getServerId()); }
+    }
 
     public synchronized List<ServerEndpoint> start(String name, int count) throws IOException {
         ensureOpen();
@@ -346,6 +408,7 @@ public final class SwarmManager implements AutoCloseable {
         List<ServerInstance> current;
         synchronized (swarms) { current = swarms.get(name); }
         if (current == null) { throw new IllegalArgumentException("Unknown swarm: " + name); }
+        refuseIfRaft(name);
         if (count < 1) { throw new IllegalArgumentException("Server count must be at least 1"); }
         if (current.size() + count > MAX_SERVERS_PER_SWARM) {
             throw new IllegalArgumentException("A swarm holds at most " + MAX_SERVERS_PER_SWARM + " servers; "
@@ -383,6 +446,7 @@ public final class SwarmManager implements AutoCloseable {
         synchronized (this) {
             ensureOpen();
             var at = locate(serverId);
+            refuseIfRaft(at.swarm());
             endpoint = endpoints(at.servers()).get(at.position());
         }
         if (gossip != null) {
@@ -450,18 +514,20 @@ public final class SwarmManager implements AutoCloseable {
         if (servers == null) { throw new IllegalArgumentException("Unknown swarm: " + name); }
         if (gossipFile != null) { gossipFile.forget(name); }
         closeServers(servers);
+        forgetRaftSwarm(name, servers);
     }
 
     public synchronized void stopAll() throws IOException {
         List<ServerInstance> servers;
-        java.util.List<String> names;
+        var bySwarm = new LinkedHashMap<String, List<ServerInstance>>();
         synchronized (swarms) {
             servers = swarms.values().stream().flatMap(List::stream).toList();
-            names = List.copyOf(swarms.keySet());
+            bySwarm.putAll(swarms);
             swarms.clear();
         }
-        if (gossipFile != null) { names.forEach(gossipFile::forget); }
+        if (gossipFile != null) { bySwarm.keySet().forEach(gossipFile::forget); }
         closeServers(servers);
+        for (var swarm : bySwarm.entrySet()) { forgetRaftSwarm(swarm.getKey(), swarm.getValue()); }
     }
 
     @Override public synchronized void close() throws IOException {
@@ -473,6 +539,7 @@ public final class SwarmManager implements AutoCloseable {
                 connections.close();
                 if (gossipFile != null) { gossipFile.close(); }
                 if (kvFile != null) { kvFile.close(); }
+                if (raftFile != null) { raftFile.close(); }
             }
         }
     }

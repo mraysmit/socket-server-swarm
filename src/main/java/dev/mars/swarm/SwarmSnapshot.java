@@ -44,6 +44,7 @@ final class SwarmSnapshot {
                 var swarm = new LinkedHashMap<String, Object>();
                 swarm.put("name", name);
                 swarm.put("servers", servers);
+                if (manager.isRaft(name)) { swarm.put("raft", true); }
                 var kvSummary = kvSync(servers);
                 if (kvSummary != null) { swarm.put("kvSync", kvSummary); }
                 out.add(swarm);
@@ -118,11 +119,13 @@ final class SwarmSnapshot {
             var frozen = server(endpoint, false, "Frozen", null);
             frozen.put("frozen", true);
             frozen.put("kv", null);
+            frozen.put("raft", null);
             frozen.put("plugins", manager.instructions(endpoint.serverId()));
             return frozen;
         }
         var server = probeServer(manager, endpoint, withMembers);
         server.put("kv", Boolean.TRUE.equals(server.get("alive")) ? kv(manager, endpoint) : null);
+        server.put("raft", Boolean.TRUE.equals(server.get("alive")) ? raft(manager, endpoint) : null);
         // The instructions it answers, one per command plugin loaded, known without asking the server.
         server.put("plugins", manager.instructions(endpoint.serverId()));
         return server;
@@ -139,6 +142,18 @@ final class SwarmSnapshot {
                 if (reply.error() != null && reply.error().code().name().equals("UNKNOWN_INSTRUCTION")) { manager.markWithoutKv(endpoint.port()); }
                 return null;
             }
+            return reply.result() instanceof Map<?, ?> status ? (Map<String, Object>) status : null;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** The Raft plugin's own status reply, for a server of a Raft swarm. Others are not asked: the plugin is idle there, and each ask would show in its activity. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> raft(SwarmManager manager, ServerEndpoint endpoint) {
+        if (!manager.inRaftSwarm(endpoint.serverId())) { return null; }
+        try {
+            var reply = manager.execute(endpoint, "raft", Map.of("operation", "status"));
             return reply.result() instanceof Map<?, ?> status ? (Map<String, Object>) status : null;
         } catch (IOException | RuntimeException e) {
             return null;

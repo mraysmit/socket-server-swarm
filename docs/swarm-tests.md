@@ -2,7 +2,7 @@
 
 ## Overview
 
-The suite has 100 test methods (112 cases with parameterized inputs) in eight JUnit 5 classes under `dev.mars.swarm`. They start real servers on local ports, so they are integration tests rather than mocks.
+The suite is JUnit 5 classes under `dev.mars.swarm`, which start real servers on local ports, so they are integration tests rather than mocks. The inventory below lists the classes it was first written with.
 
 - **SwarmManagerTest** covers the `SwarmManager` API: start, stop, status, send, test, list, validation, failure handling, and stopping or restarting one server.
 - **SwarmConsoleTest** covers the `SwarmMain` console (including the `server` command), plugin-folder argument parsing, and JVM shutdown-hook cleanup.
@@ -10,6 +10,8 @@ The suite has 100 test methods (112 cases with parameterized inputs) in eight JU
 - **SocketActivityTest** covers the recorder that turns the servers' log lines into per-server socket activity.
 - **ConnectionPoolTest** covers the harness's pool of kept-open connections to the servers.
 - **SwarmGossipTest** covers the generated gossip config and, with the real gossip plugin, convergence, failure detection, graceful leave, restart, swarm isolation, echo traffic, and the console path. The plugin tests skip themselves if the plugin JAR is not built.
+- **CallLogTest** covers the log of calls the page replays: who called whom and how it ended, told apart from clients and the harness's own polls.
+- **SwarmRaftTest** covers Raft swarms with the real plugin, loaded as the harness loads it: bootstrap, the size limit and fixed voters, the snapshot, a stopped, partitioned or frozen leader, restarting every server, kv staying local on a Raft swarm, and cleaning up. It skips itself if the plugin JAR is not built.
 - **junit-platform.properties** sets a 60 s default timeout and runs timed tests on a separate thread, so a hung test fails instead of stalling the build.
 
 ## Test inventory

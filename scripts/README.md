@@ -52,6 +52,9 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | `assessments id`, `bootId id`, `rating id, memberId, bootId` | One server's gossip view: how many members it rates ALIVE, SUSPECT, DEAD and so on; the boot ID a server runs under now; how one server rates one boot of another. |
 | `awaitAlive name, n`, `awaitInSync name`, `waitFor what, ms { ... }` | Wait for gossip to agree, for the stores to match, or for any condition. |
 | `check condition, 'what'`, `log 'text'`, `pause ms` | Record a pass or fail, print, wait. |
+| `startRaft name, n`, `propose id, command`, `proposeToLeader name, command`, `raftStatus id`, `raftLog id` | A Raft swarm, a command to commit on one server or on whoever leads, and what a server knows and holds. |
+| `leader name`, `awaitLeader name`, `awaitCommitted name, index` | Who leads, and waiting for a leader or for every server to commit. |
+| `commitNotes name, label, n`, `checkHeldEverywhere name, committed`, `checkLogsAgree name`, `checkOneLeaderPerTerm name` | Commit a few commands and remember where, and check Raft's promises. |
 | `mark 'text'` | Note a step on the page's timeline, so a replay shows what was done when. |
 | `experiment 'title', [steady: {...}, method: {...}, rollback: {...}]` | A chaos experiment: steady state before and after, rollback always. It marks its steps on the timeline itself. |
 
@@ -71,6 +74,13 @@ Start the file with `@groovy.transform.BaseScript SwarmScript swarm`; the verbs 
 | [chaos/partition.groovy](chaos/partition.groovy) | Split in two, each side sees only itself and keeps its writes; healed, it converges and a key written on both sides holds the later write. |
 | [chaos/swarm-of-ten.groovy](chaos/swarm-of-ten.groovy) | Starts a swarm of ten from nothing, then a third crashes at once, it splits four against six, and gray failures (slowed, lossy and frozen servers) strike together; no acknowledged write is lost. |
 | [chaos/slow-network.groovy](chaos/slow-network.groovy) | Delay everywhere and heavy loss at one server: writes are still taken and the swarm still converges. |
+| [chaos/raft-leader-loss.groovy](chaos/raft-leader-loss.groovy) | Stopping a Raft leader elects another within a target, loses nothing committed, and the old one rejoins as a follower. |
+| [chaos/raft-frozen-leader.groovy](chaos/raft-frozen-leader.groovy) | A frozen leader is replaced. Thawed, it wakes believing it leads, steps down, and catches up. |
+| [chaos/raft-partition.groovy](chaos/raft-partition.groovy) | With the leader on the smaller side of a split, that side commits nothing and the larger side carries on. After healing they agree, and what the old leader could not commit is gone. |
+| [chaos/raft-restart-all.groovy](chaos/raft-restart-all.groovy) | Every server stopped and restarted keeps all that was committed, and elects a leader with no bootstrap. |
+| [chaos/raft-lossy.groovy](chaos/raft-lossy.groovy) | Delay everywhere and heavy loss at the leader slow commits without breaking agreement. |
+
+The Raft scripts start their own swarms and stop them at the end. They need the Raft plugin in the harness's `--plugins-dir`.
 
 Network faults apply to the requests servers make of one another (gossip exchanges, key-value pushes and comparisons),
 which all go through the host's kept-open client. The harness decides each one from the rules in force; a lost request

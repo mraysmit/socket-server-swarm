@@ -148,8 +148,11 @@ public final class UiServer implements AutoCloseable {
         try {
             var body = body(exchange);
             if (path.equals("/api/swarms")) {
-                var endpoints = manager.start(text(body, "name"), integer(body, "servers", 0));
-                mark("start", text(body, "name") + " with " + endpoints.size() + " servers");
+                var mode = body.path("mode").asText("");
+                if (!mode.isEmpty() && !mode.equals("raft")) { throw new IllegalArgumentException("Unknown mode: " + mode); }
+                var endpoints = mode.equals("raft") ? manager.startRaft(text(body, "name"), integer(body, "servers", 0))
+                        : manager.start(text(body, "name"), integer(body, "servers", 0));
+                mark("start", text(body, "name") + " with " + endpoints.size() + " servers" + (mode.equals("raft") ? ", as a Raft cluster" : ""));
                 reply(exchange, 200, "application/json", Json.write(java.util.Map.of("ok", true, "servers", endpoints.stream().map(ServerEndpoint::serverId).toList())));
                 return;
             }

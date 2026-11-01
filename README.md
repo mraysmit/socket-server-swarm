@@ -64,7 +64,7 @@ Swarm reply | messageId=<uuid> | serverId=alpha-Server-001 | connectionId=<id> |
 
 | Command | Behavior |
 |---|---|
-| `start <name> <servers>` | Start 1–100 instances concurrently in a named swarm |
+| `start <name> <servers> [raft]` | Start 1–100 instances concurrently in a named swarm. With `raft`, up to 9, forming a Raft cluster |
 | `add <name> [servers]` | Start more servers (default 1) in a running swarm. They are numbered after the highest ID the swarm has, and with gossip are seeded at its first server. A swarm holds at most 100. |
 | `list` | Show every swarm, server ID, and actual main/admin port |
 | `status [name]` | Query the admin status of one or all swarms |
@@ -147,6 +147,27 @@ so a server that is away longer than that can bring a deleted key back.
 
 This is the second phase of replication (see the plugin project's `docs/REPLICATION_PLAN.md`). It is not yet efficient for a large
 swarm: every push and every comparison opens a new connection, and a write is pushed to every server alive. Those are the next phase.
+
+## Raft
+
+With the Raft plugin loaded, a swarm can be a Raft cluster: a replicated log with an elected leader, needing neither gossip nor kv. Build it with
+`mvn -f ../socket-server-threadpool/plugins/raft-plugin/pom.xml package`, which puts the jars it needs beside its own, then:
+
+```powershell
+mvn compile exec:java "-Dexec.args=--plugins-dir ../socket-server-threadpool/plugins/raft-plugin/target"
+```
+
+`start consensus 5 raft` starts five servers and tells each who the others are. A server not started this way stays idle, however many plugins are loaded. In the page, Raft's
+calls appear under Other for now. A command goes to the leader, and a follower answers with where to find it:
+
+```text
+call consensus-Server-001 {"instruction":"raft","parameters":{"operation":"propose","command":{"instruction":"anything"}}}
+```
+
+The answer's `status` is `COMMITTED`, `NOT_LEADER`, `REFUSED`, or `OUTCOME_UNKNOWN`, which means it may yet commit, so read before retrying. `status` shows a server's role, term,
+leader and how far it has committed, and `log` with `from` and `limit` shows its entries. Nothing is applied to anything yet: this is the third phase of the plugin project's
+`docs/RAFT_PLUGIN_PLAN.md`. A Raft swarm's servers keep their logs in a directory the harness owns, through restarts, until the swarm is stopped, and its voters are fixed, so it
+refuses Add and Remove.
 
 ## Swarm UI
 
