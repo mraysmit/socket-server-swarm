@@ -8,6 +8,7 @@ String name = args ? args[0] : 'distributed'
 int size = args && args.size() > 1 ? args[1] as int : 5
 boolean stopAtEnd = args && args.size() > 2
 
+if (snapshot().swarms.any { it.name == name }) { stopSwarm name }
 def everyone = startRaft(name, size)
 try {
     check awaitLeader(name) != null, "${size} servers elect a leader"
