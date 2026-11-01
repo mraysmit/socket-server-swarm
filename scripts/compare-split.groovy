@@ -141,7 +141,7 @@ try {
     row 'That key after healing', "\"${lwwKept.join(', ')}\"", "\"${raftKept.join(', ')}\""
     row 'An acknowledged write lost', 'yes', 'no'
     row 'Keys no order of events explains', "${lwwResult.violations.size()} of ${lwwResult.keys}", "${raftResult.violations.size()} of ${raftResult.keys}"
-    log 'Raft acknowledges few while split because a client that asks the old leader waits out propose.timeout.millis, and these clients keep finding it. Phase 6 of the plan ends that.'
+    log 'Raft acknowledges fewer while split, and how many varies from run to run: a client that asks the old leader waits there until it times out.'
 } finally {
     heal()
     if (stopAtEnd) {
