@@ -95,7 +95,7 @@ try {
             raftLargerAnswer = proposeToLeader(raft, kvPut(shared, largerValue), 15_000, raftLarger)
             raftOldLeaderAnswer = propose(raftOld, kvPut(shared, smallerValue))
             raftOldLeaderRead = raftRead(raftOld, kvGet(shared))
-            log "On Raft, ${raftNext} leads the larger side, and ${raftOld} still believes it leads the smaller"
+            log "On Raft, ${raftNext} leads the larger side, and ${raftOld} on the smaller ${raftStatus(raftOld).role == 'LEADER' ? 'still believes it leads' : 'has stepped down'}"
 
             pause 2_000
             commitAfterSplit = raftStatus(raftOld).commitIndex as long
@@ -117,7 +117,8 @@ try {
     check !lwwResult.violations.isEmpty(), "the history checker finds what clients of last-writer-wins saw cannot be explained (${lwwResult.violations.size()} of ${lwwResult.keys} keys)"
 
     check raftLargerAnswer.status == 'COMMITTED', "on Raft, the larger side took its write (${raftLargerAnswer.status})"
-    check raftOldLeaderAnswer.status == 'OUTCOME_UNKNOWN', "the old leader on the smaller side could not acknowledge its write (${raftOldLeaderAnswer.status})"
+    // With check-quorum it may already have stepped down and say so, and without it the write waits and times out: either way, not acknowledged.
+    check raftOldLeaderAnswer.status in ['OUTCOME_UNKNOWN', 'NOT_LEADER'], "the old leader on the smaller side did not acknowledge its write (${raftOldLeaderAnswer.status})"
     check raftOldLeaderRead.status != 'READ', "and would not answer a read (${raftOldLeaderRead.status})"
     check commitAfterSplit == commitAtSplit, 'the smaller side committed nothing while split'
     check counted('raft ok') > 0, 'and clients were still acknowledged, by the larger side'

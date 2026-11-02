@@ -16,18 +16,18 @@
   --bg:#eaeef2; --panel:#fafbfc; --ink:#14202b; --mute:#566676; --line:#d0d8df; --soft:#e2e8ee;
   --accent:#2456d6; --accent-ink:#ffffff;
   --ok:#0f7a50; --warn:#a35a00; --bad:#c0302c; --gone:#6f7e8c; --ice:#1f7fc4; --ice-soft:#e1f0fb; --cut:#7a3fcf;
-  --t-gossip:var(--accent); --t-push:#b3329a; --t-compare:#0a7f86; --t-client:var(--ink); --t-other:var(--mute); --t-vote:#96700a; --t-append:#4b7f1f;
+  --t-gossip:var(--accent); --t-push:#b3329a; --t-compare:#0a7f86; --t-client:var(--ink); --t-other:var(--mute); --t-vote:#96700a; --t-append:#4b7f1f; --raft-tag-line:#6b4f00;
   --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
   --accent:#7aa2ff; --accent-ink:#0c151e;
-  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; --t-vote:#e3c04d; --t-append:#9ad06a; color-scheme:dark;}}
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; --t-vote:#e3c04d; --t-append:#9ad06a; --raft-tag-line:#e3c04d; color-scheme:dark;}}
 :root[data-theme="dark"]{
   --bg:#0c151e; --panel:#111e2a; --ink:#e3ebf2; --mute:#8ea2b3; --line:#23364a; --soft:#182b3b;
   --accent:#7aa2ff; --accent-ink:#0c151e;
-  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; --t-vote:#e3c04d; --t-append:#9ad06a; color-scheme:dark;}
+  --ok:#3fcf8e; --warn:#f0b44c; --bad:#ff7b73; --gone:#8497a8; --ice:#7cc4ff; --ice-soft:#12304a; --cut:#c39bff; --t-push:#ec8bdc; --t-compare:#5fd4d6; --t-vote:#e3c04d; --t-append:#9ad06a; --raft-tag-line:#e3c04d; color-scheme:dark;}
 
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;
@@ -133,7 +133,7 @@ svg[data-lod="low"] .arcbg,svg[data-lod="low"] .arc{display:none}
 .plug text{font-family:var(--mono);font-size:7.5px;font-weight:600;text-anchor:middle;dominant-baseline:central;fill:var(--mute)}
 .plug.pl-GS rect{stroke:var(--accent)} .plug.pl-GS text{fill:var(--accent)}
 .plug.pl-KV rect{stroke:var(--ok)} .plug.pl-KV text{fill:var(--ok)}
-.plug.pl-RA rect{stroke:var(--t-vote)} .plug.pl-RA text{fill:var(--t-vote)}
+.plug.pl-RA rect{stroke:var(--raft-tag-line)} .plug.pl-RA text{fill:var(--t-vote)}
 /* Raft: a ring and a label for a server that believes it leads. A stale leader is dashed and amber; what a frozen one last said is plain. */
 .leadring{fill:none;stroke:var(--t-vote);stroke-width:max(3px,calc(2px / var(--k,1)))}
 .leadring.stale{stroke:var(--warn);stroke-dasharray:6 5}
