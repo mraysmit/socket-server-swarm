@@ -34,6 +34,11 @@ public final class SwarmManager implements AutoCloseable {
     public static final int MAX_SERVERS_PER_SWARM = 100;
     /** Every server of a Raft swarm votes, and more voters only slow it. */
     public static final int MAX_RAFT_SERVERS = 9;
+    /**
+     * How long finding a Raft swarm's leader and having it change the voters may take. Longer than the plugin's own catch.up.timeout.millis,
+     * so the plugin, which knows why, is the one that gives up.
+     */
+    private static final long RAFT_CHANGE_MILLIS = 30_000;
     private static final java.util.regex.Pattern SERVER_ID = java.util.regex.Pattern.compile("(.+)-Server-(\\d{3})");
     private final Map<String, List<ServerInstance>> swarms = new LinkedHashMap<>();
     private final List<Path> pluginDirectories;
@@ -44,6 +49,8 @@ public final class SwarmManager implements AutoCloseable {
     private GossipConfigFile gossipFile;
     private RaftConfigFile raftFile;
     private final java.util.Set<String> raftSwarms = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** Each Raft swarm's cluster ID, which a server added to it must be given. */
+    private final Map<String, String> raftClusterIds = new java.util.concurrent.ConcurrentHashMap<>();
     /** The plugin folders of each server that runs without one of them for now. */
     private final Map<String, List<Path>> heldBack = new java.util.concurrent.ConcurrentHashMap<>();
     private final ConnectionPool connections = new ConnectionPool();
@@ -81,8 +88,9 @@ public final class SwarmManager implements AutoCloseable {
     /**
      * Starts a swarm whose servers form a Raft cluster: every one a voter, from the moment each is told so. The plugin is loaded on
      * every server of the harness, and stays idle on any not told. Servers keep their logs under a directory this harness owns, through
-     * restarts, until the swarm is stopped. The voters are fixed, so a Raft swarm refuses to be added to or removed from. With key-value
-     * replication on for the harness, it is off for these servers, because Raft and kv's own replication at once would be silently wrong.
+     * restarts, until the swarm is stopped. Adding a server makes it a voter once it has caught up, and removing one takes its vote away
+     * first, one server at a time, through the log. With key-value replication on for the harness, it is off for these servers, because
+     * Raft and kv's own replication at once would be silently wrong.
      */
     public synchronized List<ServerEndpoint> startRaft(String name, int count) throws IOException { return startRaft(name, count, null); }
 
@@ -144,6 +152,7 @@ public final class SwarmManager implements AutoCloseable {
         var voters = new ArrayList<Map<String, Object>>();
         for (var server : servers) { voters.add(Map.of("id", server.serverId(), "host", "127.0.0.1", "port", server.port())); }
         var clusterId = name + "-" + UUID.randomUUID();
+        raftClusterIds.put(name, clusterId);
         for (var server : servers) {
             var reply = execute(server, "raft", Map.of("operation", "bootstrap", "clusterId", clusterId, "voters", voters));
             if (reply.error() == null) { continue; }
@@ -164,13 +173,73 @@ public final class SwarmManager implements AutoCloseable {
 
     RaftConfigFile raftFile() { return raftFile; }
 
-    private void refuseIfRaft(String swarm) {
-        if (isRaft(swarm)) { throw new IllegalStateException("The voters of a Raft swarm are fixed for now, so " + swarm + " cannot gain or lose a server"); }
+    /**
+     * Gives a server just started in a Raft swarm the cluster, without a vote, then has the leader add it, which it does once the server
+     * has caught up. Returns once that change has committed.
+     */
+    private void joinAndAdd(String swarm, ServerEndpoint joining) throws IOException {
+        var voters = new ArrayList<Map<String, Object>>();
+        for (var server : endpointsOf(swarm)) {
+            if (!server.serverId().equals(joining.serverId())) { voters.add(Map.of("id", server.serverId(), "host", "127.0.0.1", "port", server.port())); }
+        }
+        var joined = execute(joining, "raft", Map.of("operation", "join", "clusterId", raftClusterIds.get(swarm), "voters", voters));
+        if (joined.error() != null) { throw new IOException("Could not join " + joining.serverId() + " to " + swarm + ": " + joined.error().message()); }
+        changeVoters(swarm, Map.of("operation", "addVoter", "id", joining.serverId(), "host", "127.0.0.1", "port", joining.port()), null);
+    }
+
+    /**
+     * Has whoever leads the swarm make a change of voters, following the lead through elections, and returns once the change has committed.
+     * A refusal that waiting will not cure is thrown as {@link IllegalStateException}; an outcome not known, as {@link IOException}. With
+     * {@code removing}, a server the leader does not count as a voter needs no change.
+     */
+    @SuppressWarnings("unchecked")
+    private void changeVoters(String swarm, Map<String, Object> change, String removing) throws IOException {
+        long deadline = System.nanoTime() + RAFT_CHANGE_MILLIS * 1_000_000;
+        String last = "no server of " + swarm + " leads";
+        while (System.nanoTime() < deadline) {
+            for (var server : endpointsOf(swarm)) {
+                var status = raftStatus(server);
+                if (!"LEADER".equals(status.get("role"))) { continue; }
+                if (removing != null && status.get("voters") instanceof List<?> voters && !voters.contains(removing) && !removing.equals(status.get("learner"))) { return; }
+                var reply = execute(server, "raft", change);
+                if (reply.error() != null) { throw new IOException("Could not change the voters of " + swarm + ": " + reply.error().message()); }
+                var result = (Map<String, Object>) reply.result();
+                var outcome = String.valueOf(result.get("status"));
+                if (outcome.equals("COMMITTED")) { return; }
+                last = String.valueOf(result.get("reason"));
+                if (outcome.equals("OUTCOME_UNKNOWN")) { throw new IOException("What became of the change to " + swarm + "'s voters is not known: " + last); }
+                // A new leader may not have committed in its own term yet, and an earlier change may still be committing: both pass.
+                if (outcome.equals("REFUSED") && !last.contains("own term") && !last.contains("one at a time")) { throw new IllegalStateException(last); }
+            }
+            try { Thread.sleep(50); }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new InterruptedIOException("Interrupted while changing the voters of " + swarm);
+            }
+        }
+        throw new IOException("Could not change the voters of " + swarm + " within " + RAFT_CHANGE_MILLIS + " ms: " + last);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> raftStatus(ServerEndpoint server) {
+        try {
+            var reply = execute(server, "raft", Map.of("operation", "status"));
+            return reply.error() == null && reply.result() instanceof Map<?, ?> result ? (Map<String, Object>) result : Map.of();
+        } catch (IOException notAnswering) {
+            return Map.of();
+        }
+    }
+
+    private List<ServerEndpoint> endpointsOf(String swarm) {
+        List<ServerInstance> servers;
+        synchronized (swarms) { servers = swarms.getOrDefault(swarm, List.of()); }
+        return endpoints(servers);
     }
 
     private void forgetRaftSwarm(String name, List<ServerInstance> servers) throws IOException {
         forgetHeldBack(name);
         if (kvFile != null) { kvFile.forget(name); }
+        raftClusterIds.remove(name);
         if (!raftSwarms.remove(name)) { return; }
         for (var server : servers) { raftFile.forgetServer(server.getServerId()); }
     }
@@ -446,15 +515,19 @@ public final class SwarmManager implements AutoCloseable {
     /**
      * Starts {@code count} more servers in a running swarm, numbered after the highest ID it has had. With gossip, each is
      * seeded at the swarm's first server. Each server is listed as soon as it is up, so a failure part-way keeps the ones
-     * that started.
+     * that started. In a Raft swarm each is added as a voter before the next starts; one the leader would not add is stopped
+     * and unlisted again.
      */
     public synchronized List<ServerEndpoint> addServers(String name, int count) throws IOException {
         ensureOpen();
         List<ServerInstance> current;
         synchronized (swarms) { current = swarms.get(name); }
         if (current == null) { throw new IllegalArgumentException("Unknown swarm: " + name); }
-        refuseIfRaft(name);
+        boolean raft = isRaft(name);
         if (count < 1) { throw new IllegalArgumentException("Server count must be at least 1"); }
+        if (raft && current.size() + count > MAX_RAFT_SERVERS) {
+            throw new IllegalArgumentException("A Raft swarm holds at most " + MAX_RAFT_SERVERS + " servers; " + name + " has " + current.size());
+        }
         if (current.size() + count > MAX_SERVERS_PER_SWARM) {
             throw new IllegalArgumentException("A swarm holds at most " + MAX_SERVERS_PER_SWARM + " servers; "
                     + name + " has " + current.size());
@@ -468,12 +541,27 @@ public final class SwarmManager implements AutoCloseable {
             int index = next + i;
             try {
                 if (gossip != null && gossipFile != null) { gossipFile.declareServer(name, index, seed.getServerId(), seed.getPort()); }
+                if (raft && kvFile != null) { kvFile.keepLocalServer(GossipConfigFile.id(name, index)); }
                 var server = factory.start(new ServerOptions(GossipConfigFile.id(name, index), 0, 0, pluginDirectories));
                 servers.add(server);
                 synchronized (swarms) { swarms.put(name, List.copyOf(servers)); }
-                added.add(new ServerEndpoint(server.getServerId(), server.getPort(), server.getAdminPort()));
+                var endpoint = new ServerEndpoint(server.getServerId(), server.getPort(), server.getAdminPort());
+                if (raft) {
+                    try {
+                        joinAndAdd(name, endpoint);
+                    } catch (IllegalStateException refused) {
+                        // Nothing changed, so the server goes again, and its data with it.
+                        servers.remove(server);
+                        synchronized (swarms) { swarms.put(name, List.copyOf(servers)); }
+                        server.close();
+                        raftFile.forgetServer(server.getServerId());
+                        throw refused;
+                    }
+                }
+                added.add(endpoint);
             } catch (IOException | RuntimeException e) {
                 if (gossipFile != null) { gossipFile.forgetServer(GossipConfigFile.id(name, index)); }
+                if (raft && kvFile != null) { kvFile.forgetServer(GossipConfigFile.id(name, index)); }
                 throw new IOException("Added " + added.size() + " of " + count + " servers to " + name + "; "
                         + GossipConfigFile.id(name, index) + " failed: " + e.getMessage(), e);
             }
@@ -484,16 +572,19 @@ public final class SwarmManager implements AutoCloseable {
     /**
      * Takes one server out of its swarm for good: a gossip server first publishes a graceful departure (best effort), then
      * it is closed and unlisted. The swarm is dropped when its last server goes. Unlike {@link #stopServer} the server
-     * cannot be restarted.
+     * cannot be restarted. In a Raft swarm the leader first takes away its vote, and the server is closed only once that has
+     * committed. A leader removed hands over: it steps down once its removal commits. The last voter is never removed.
      */
     public void removeServer(String serverId) throws IOException {
         ServerEndpoint endpoint;
+        String swarm;
         synchronized (this) {
             ensureOpen();
             var at = locate(serverId);
-            refuseIfRaft(at.swarm());
+            swarm = at.swarm();
             endpoint = endpoints(at.servers()).get(at.position());
         }
+        if (isRaft(swarm)) { changeVoters(swarm, Map.of("operation", "removeVoter", "id", serverId), serverId); }
         if (gossip != null) {
             try { execute(endpoint, "gossip", Map.of("operation", "leave")); }
             catch (IOException | RuntimeException ignored) { /* already stopped, or not answering: close it anyway */ }
@@ -510,6 +601,10 @@ public final class SwarmManager implements AutoCloseable {
             }
             if (gossipFile != null) {
                 if (remaining.isEmpty()) { gossipFile.forget(at.swarm()); } else { gossipFile.forgetServer(serverId); }
+            }
+            if (isRaft(at.swarm())) {
+                raftFile.forgetServer(serverId);
+                if (kvFile != null) { kvFile.forgetServer(serverId); }
             }
         }
     }

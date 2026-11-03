@@ -33,6 +33,20 @@ final class KvConfigFile implements AutoCloseable {
         Files.write(file, lines, StandardCharsets.UTF_8);
     }
 
+    /** Turns replication off for one server added to such a swarm. */
+    synchronized void keepLocalServer(String serverId) throws IOException {
+        var lines = new ArrayList<>(Files.readAllLines(file, StandardCharsets.UTF_8));
+        lines.add("server." + serverId + ".replication=off");
+        Files.write(file, lines, StandardCharsets.UTF_8);
+    }
+
+    /** Puts one server back to what every other server gets. */
+    synchronized void forgetServer(String serverId) throws IOException {
+        var lines = new ArrayList<>(Files.readAllLines(file, StandardCharsets.UTF_8));
+        lines.removeIf(line -> line.startsWith("server." + serverId + "."));
+        Files.write(file, lines, StandardCharsets.UTF_8);
+    }
+
     /** Puts a swarm's servers back to what every other server gets. */
     synchronized void forget(String swarm) throws IOException {
         var lines = new ArrayList<>(Files.readAllLines(file, StandardCharsets.UTF_8));

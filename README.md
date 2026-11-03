@@ -167,8 +167,14 @@ call consensus-Server-001 {"instruction":"raft","parameters":{"operation":"read"
 ```
 
 Answers and settings are in the plugin project's `docs/RAFT_PLUGIN.md`, and what is still to come in its `docs/RAFT_PLUGIN_PLAN.md`. A Raft swarm's servers keep their logs in a
-directory the harness owns, through restarts, until the swarm is stopped, and its voters are fixed, so it refuses Add and Remove. With `--kv-replicate`, kv's replication is off on
-a Raft swarm's servers, so other swarms in the same harness can keep it on.
+directory the harness owns, through restarts, until the swarm is stopped. With `--kv-replicate`, kv's replication is off on a Raft swarm's servers, so other swarms in the same
+harness can keep it on.
+
+Add and Remove change a Raft swarm's voters, one server at a time, through the log. Add starts a server, gives it the cluster with `join`, and has the leader add it with
+`addVoter`, which happens once it has caught up: the call returns when the change has committed. A server the leader gives up on is stopped again. Remove has the leader take the
+server's vote away with `removeVoter`, and stops the server once that has committed, so a leader removed hands over. A Raft swarm still holds at most 9 servers, and its last
+server is not removed. The harness has every server take a snapshot each 32 entries applied, so logs are compacted and snapshots sent in every script, as in a long-lived
+cluster, and a server added or behind may be caught up by one.
 
 `POST /api/swarms` with `"mode":"raft","without":"kv"` starts a Raft swarm without that plugin, so commands for it commit and wait, and `POST /api/servers/<id>/restart-with-all-plugins`
 then activates it on one server. The console has no command for this.

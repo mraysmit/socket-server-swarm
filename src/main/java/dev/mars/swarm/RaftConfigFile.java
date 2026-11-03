@@ -26,8 +26,10 @@ final class RaftConfigFile implements AutoCloseable {
         Path data = Files.createTempDirectory("swarm-raft-");
         Path file = Files.createTempFile("swarm-raft-", ".properties");
         // Forward slashes, because a backslash in a properties file is an escape.
-        // A short checkpoint interval, because a script commits far less than a real log holds, and must still see servers compared.
-        Files.writeString(file, "data.dir=" + data.toString().replace('\\', '/') + System.lineSeparator() + "checkpoint.interval=8" + System.lineSeparator(), StandardCharsets.UTF_8);
+        // A short checkpoint interval, because a script commits far less than a real log holds, and must still see servers compared. A short
+        // snapshot interval for the same reason: every script then runs with logs being compacted and snapshots sent, as a long-lived cluster would.
+        Files.writeString(file, "data.dir=" + data.toString().replace('\\', '/') + System.lineSeparator() + "checkpoint.interval=8" + System.lineSeparator()
+                + "snapshot.interval=32" + System.lineSeparator(), StandardCharsets.UTF_8);
         System.setProperty(PROPERTY, file.toString());
         return new RaftConfigFile(file, data);
     }

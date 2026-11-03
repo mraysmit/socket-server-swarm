@@ -213,14 +213,90 @@ class SwarmRaftTest {
         }
     }
 
-    @Test void aRaftSwarmIsLimitedInSizeAndItsVotersAreFixedForNow() throws Exception {
+    // Phase 7 replaced aRaftSwarmIsLimitedInSizeAndItsVotersAreFixedForNow: the voters are no longer fixed, and the size limit stays.
+    @Test void aRaftSwarmIsLimitedInSizeWhetherStartedOrAddedTo() throws Exception {
         try (var manager = raftOnly()) {
             assertThrows(IllegalArgumentException.class, () -> manager.startRaft("huge", SwarmManager.MAX_RAFT_SERVERS + 1));
             assertTrue(manager.list().isEmpty());
-            var servers = manager.startRaft("fixed", 2);
-            assertThrows(IllegalStateException.class, () -> manager.addServers("fixed", 1));
-            assertThrows(IllegalStateException.class, () -> manager.removeServer(servers.getFirst().serverId()));
-            assertEquals(2, manager.list().get("fixed").size());
+            manager.startRaft("full", SwarmManager.MAX_RAFT_SERVERS - 1);
+            assertThrows(IllegalArgumentException.class, () -> manager.addServers("full", 2));
+            assertEquals(SwarmManager.MAX_RAFT_SERVERS - 1, manager.list().get("full").size());
+        }
+    }
+
+    // ---- Changing the voters (Phase 7) ----------------------------------------------------------------------------------
+
+    @SuppressWarnings("unchecked")
+    private static List<String> votersOf(SwarmManager manager, String serverId) {
+        return status(manager, serverId).get("voters") instanceof List<?> voters ? (List<String>) voters : List.of();
+    }
+
+    private static List<String> ids(List<ServerEndpoint> servers) { return servers.stream().map(ServerEndpoint::serverId).toList(); }
+
+    @Test void aServerAddedToARaftSwarmCatchesUpThenVotesEverywhere() throws Exception {
+        try (var manager = raftOnly()) {
+            var servers = manager.startRaft("growing", 3);
+            var leader = leaderAmong(manager, servers);
+            long before = ((Number) propose(manager, leader, "before").get("index")).longValue();
+            var added = manager.addServers("growing", 1);
+            assertEquals(List.of("growing-Server-004"), ids(added));
+            var all = manager.list().get("growing");
+            assertEquals(4, all.size());
+            await("every server has four voters", () -> all.stream().allMatch(server -> votersOf(manager, server.serverId()).equals(ids(all))));
+            var page = raft(manager, "growing-Server-004", Map.of("operation", "log", "from", before, "limit", 1));
+            assertTrue(page.get("entries").toString().contains("before"), "It caught up before it voted: " + page);
+            var now = leaderAmong(manager, all);
+            long after = ((Number) propose(manager, now, "after").get("index")).longValue();
+            await("the new server committed what came after", () -> status(manager, "growing-Server-004").get("commitIndex") instanceof Number commit && commit.longValue() >= after);
+        }
+    }
+
+    @Test void aServerAddedKeepsItsVoteThroughARestart() throws Exception {
+        try (var manager = raftOnly()) {
+            var servers = manager.startRaft("kept", 3);
+            leaderAmong(manager, servers);
+            manager.addServers("kept", 1);
+            manager.stopServer("kept-Server-004");
+            manager.restartServer("kept-Server-004");
+            await("it is back with its vote", () -> votersOf(manager, "kept-Server-004").contains("kept-Server-004"));
+        }
+    }
+
+    @Test void aFollowerRemovedLosesItsVoteAndIsStopped() throws Exception {
+        try (var manager = raftOnly()) {
+            var servers = manager.startRaft("shrinking", 3);
+            var leader = leaderAmong(manager, servers);
+            var follower = servers.stream().map(ServerEndpoint::serverId).filter(id -> !id.equals(leader)).findFirst().orElseThrow();
+            manager.removeServer(follower);
+            var rest = manager.list().get("shrinking");
+            assertEquals(2, rest.size());
+            assertFalse(ids(rest).contains(follower));
+            await("the rest have each other as voters", () -> rest.stream().allMatch(server -> votersOf(manager, server.serverId()).equals(ids(rest))));
+            assertEquals("COMMITTED", propose(manager, leaderAmong(manager, rest), "after").get("status"));
+        }
+    }
+
+    @Test void theLeaderRemovedHandsOverToAnother() throws Exception {
+        try (var manager = raftOnly()) {
+            var servers = manager.startRaft("handover", 3);
+            var leader = leaderAmong(manager, servers);
+            manager.removeServer(leader);
+            var rest = manager.list().get("handover");
+            var next = leaderAmong(manager, rest);
+            assertNotEquals(leader, next);
+            assertEquals(ids(rest), votersOf(manager, next));
+            assertEquals("COMMITTED", propose(manager, next, "after").get("status"));
+        }
+    }
+
+    @Test void theLastServerOfARaftSwarmIsNotRemoved() throws Exception {
+        try (var manager = raftOnly()) {
+            var only = manager.startRaft("alone", 1).getFirst();
+            leaderAmong(manager, List.of(only));
+            var refused = assertThrows(IllegalStateException.class, () -> manager.removeServer(only.serverId()));
+            assertTrue(refused.getMessage().contains("last voter"), refused.getMessage());
+            assertEquals(1, manager.list().get("alone").size());
+            assertEquals("LEADER", status(manager, only.serverId()).get("role"));
         }
     }
 
@@ -365,6 +441,30 @@ class SwarmRaftTest {
             } catch (Exception notYet) { return false; }
         });
         return (Map<String, Object>) answer.get("result");
+    }
+
+    // ---- Snapshots (Phase 8) ------------------------------------------------------------------------------------------
+
+    private static long snapshotIndex(SwarmManager manager, String serverId) {
+        return status(manager, serverId).get("snapshotIndex") instanceof Number index ? index.longValue() : 0;
+    }
+
+    @Test void aServerAddedAfterTheLogWasCompactedIsCaughtUpByASnapshotOfTheRealKv() throws Exception {
+        try (var manager = new SwarmManager(List.of(KV, RAFT))) {
+            var servers = manager.startRaft("compacted", 3);
+            for (int i = 0; i < 40; i++) { commit(manager, servers, kvPut("key-" + (i % 7), "value-" + i)); }
+            var leader = leaderAmong(manager, servers);
+            await("the leader compacted its log", () -> snapshotIndex(manager, leader) > 0);
+            var added = manager.addServers("compacted", 1).getFirst();
+            assertTrue(snapshotIndex(manager, added.serverId()) > 0, "It needed what was compacted, so it was sent a snapshot");
+            long last = ((Number) commit(manager, manager.list().get("compacted"), kvPut("key-0", "after")).get("index")).longValue();
+            awaitApplied(manager, added, last);
+            var leaderNow = leaderAmong(manager, servers);
+            var leading = manager.list().get("compacted").stream().filter(server -> server.serverId().equals(leaderNow)).findFirst().orElseThrow();
+            for (int key = 0; key < 7; key++) {
+                assertEquals(kvValue(manager, leading, "key-" + key), kvValue(manager, added, "key-" + key), "key-" + key);
+            }
+        }
     }
 
     @Test void theRealKvBehindRaftHoldsTheSameEverywhereAndCanBeReadThroughTheLeader() throws Exception {

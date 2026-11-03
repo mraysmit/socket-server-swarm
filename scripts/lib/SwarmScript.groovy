@@ -282,13 +282,15 @@ abstract class SwarmScript extends Script {
         check reported.values().collect { it[2..3] }.unique(false).size() == 1, "every server of ${name} reports the same checkpoint at position ${position}"
     }
 
-    /** Every entry a server holds, committed or not. */
+    /** Every entry a server holds, committed or not, each with its position. What its snapshot covers is not entries any more. */
     List<Map> raftLog(String serverId) {
         def all = []
+        long from = 1
         while (true) {
-            List<Map> page = call(serverId, 'raft', [operation: 'log', from: all.size() + 1, limit: 100]).entries as List<Map>
+            List<Map> page = call(serverId, 'raft', [operation: 'log', from: from, limit: 100]).entries as List<Map>
             if (!page) { return all }
             all.addAll(page)
+            from = (page.last().index as long) + 1
         }
     }
 
@@ -335,12 +337,16 @@ abstract class SwarmScript extends Script {
         check leaders.values().every { it.size() == 1 }, "no term of ${name} has two leaders"
     }
 
-    /** Every server up holds the same entries as far as they have all committed. */
+    /**
+     * Every server up holds the same entries as far as they have all committed, after the furthest snapshot among them. What the snapshots
+     * cover is compared by the agreement checkpoints instead: see {@link #checkCheckpointsAgree}.
+     */
     boolean checkLogsAgree(String name) {
         def up = servers(name).findAll { it.alive }
         long agreed = up.collect { (it.raft?.commitIndex ?: 0) as long }.min() ?: 0
-        def prefixes = up.collect { raftLog(it.serverId as String).take((int) agreed) }
-        check prefixes.toSet().size() == 1, "every server of ${name} holds the same ${agreed} committed entries"
+        long compacted = up.collect { (it.raft?.snapshotIndex ?: 0) as long }.max() ?: 0
+        def prefixes = up.collect { raftLog(it.serverId as String).findAll { entry -> (entry.index as long) > compacted && (entry.index as long) <= agreed } }
+        check prefixes.toSet().size() == 1, "every server of ${name} holds the same ${Math.max(0L, agreed - compacted)} committed entries" + (compacted ? " after the snapshots, which reach ${compacted}" : '')
     }
 
     /** Commits one command per position it returns, naming it so that it can be looked for later. Fails a check if one does not commit. */
@@ -361,8 +367,10 @@ abstract class SwarmScript extends Script {
         if (!committed) { return true }
         if (!check(awaitCommitted(name, committed.keySet().max()), "every server of ${name} commits all of them")) { return false }
         boolean all = servers(name).findAll { it.alive }.every { server ->
-            def log = raftLog(server.serverId as String)
-            committed.every { index, note -> log[(int) index - 1]?.command?.contains(note) }
+            def log = raftLog(server.serverId as String).collectEntries { [(it.index as long), it] }
+            long compacted = (raftStatus(server.serverId as String).snapshotIndex ?: 0) as long
+            // An entry a snapshot covers is not held as an entry: what it did is in the snapshot, which the checkpoints compare.
+            committed.every { index, note -> index <= compacted || log[index]?.command?.contains(note) }
         }
         check all, "every server of ${name} holds all ${committed.size()} committed entries where they were committed"
     }
